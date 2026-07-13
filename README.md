@@ -1,19 +1,23 @@
-# @orkestrel/relation
+# @orkestrel/rater
 
-A typed **relation manager** over [`@orkestrel/database`](https://github.com/orkestrel/database)
-tables — name a table's relations once, then `load` / `find` records with their
-related rows already attached. Loading is **batched** — one query per relation
-across the whole record set, grouped in memory and merged on — so a hundred
-parents cost the same number of round-trips as one. Five relation kinds
-(`belongs` / `many` / `one` / `through` / `morph`) cover the FK shapes; nested
-includes recurse through the registry; `link` / `unlink` / `links` manage a
-many-to-many junction without hand-writing join rows. Environment-agnostic —
-no I/O, no browser or server assumptions. Part of the `@orkestrel` line.
+A typed **rating engine**: programs compile line, pass, and ruling definitions
+into determinations, worksheets, and aggregates for rated subjects. Pure,
+authored **program definitions** — `lines` (quantitative rating), `passes`
+(ordered pre-rating overlays), `rulings` (rule id → effect routing), `notices`,
+and an optional `authority` (a final logical gate deriving a `decision`) — are
+compiled and rated over ONE shared [`@orkestrel/reason`](https://github.com/orkestrel/reason)
+engine (`quantitative` + `logical` reasoners). Rating never mutates its
+inputs: every result — `LineResult`, `ProgramResult`, `SubjectResult`,
+`AggregateResult` — is a fresh object carrying a `trace` and accumulated
+`errors`. Batch rating additionally supports per-program aggregate fields, an
+optional partition key, and gated aggregate determinations, plus per-`Status`
+tallies. Environment-agnostic — no I/O, no browser or server assumptions.
+Part of the `@orkestrel` line.
 
 ## Install
 
 ```sh
-npm install @orkestrel/relation
+npm install @orkestrel/rater
 ```
 
 ## Requirements
@@ -24,48 +28,40 @@ npm install @orkestrel/relation
 ## Usage
 
 ```ts
-import { createRelationManager, belongsTo, hasMany, hasThrough } from '@orkestrel/relation'
-import { createDatabase, createMemoryDriver } from '@orkestrel/database'
-import { stringShape } from '@orkestrel/contract'
+import { createRater, lineDefinition, programDefinition } from '@orkestrel/rater'
+import { factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
 
-const db = createDatabase({
-	driver: createMemoryDriver(),
-	tables: {
-		accounts: { id: stringShape(), name: stringShape(), classificationId: stringShape() },
-		contacts: { id: stringShape(), accountId: stringShape(), email: stringShape() },
-		classifications: { id: stringShape(), label: stringShape() },
-	},
-})
+const rater = createRater()
 
-const manager = createRelationManager({
-	database: db,
-	relations: {
-		accounts: {
-			classification: belongsTo('classificationId', 'classifications'), // FK on accounts
-			contacts: hasMany('accountId'), // FK on contacts → back here
-		},
-		contacts: { account: belongsTo('accountId', 'accounts') },
-	},
-})
+const base = lineDefinition(
+	'base',
+	'Base Amount',
+	quantitativeDefinition('base', 'Base', [
+		factorGroup('amount', 'sum', [staticFactor('flat', 100)]),
+	]),
+)
 
-const accounts = manager.model('accounts') // a typed Model; only the relations you ask for load
-const acme = await accounts.load('acc1', { contacts: true, classification: true })
+rater.programs.add(programDefinition('p1', 'Program', [base]))
 
-acme?.name // ✅ the base row is the table's row type
-acme?.contacts // the relation property — broad (Row | readonly Row[] | undefined)
+const result = rater.rate({ id: 'subject-1' }) // one subject → one SubjectResult
+result.programs[0]?.eligibility // 'eligible'
+
+rater.rate([{ id: 'a' }, { id: 'b' }]) // an ARRAY resolves to the batch AggregateResult overload
+
+rater.destroy()
 ```
 
-`model(name)` is checked against the database's declared tables, so a typo is a
-compile error. The model's own table (`model.table`) carries that table's row
-type; the attached related rows are the broad `Row` — narrow them where you
-read them.
+`rate` dispatches by input shape — an ARRAY resolves to the batch
+`AggregateResult` overload, a single subject resolves to `SubjectResult`.
+Every applied determination and derived decision fires through
+`rater.emitter` (`rate` / `aggregate` / `determine` / `decide`).
 
 ## Guide
 
-For the full surface — the manager, the `Model`, the relation builders
-(`belongsTo` / `hasMany` / `hasOne` / `hasThrough` / `hasMorph`), resolution,
-errors, and the observation surface — see
-[`guides/src/relation.md`](guides/src/relation.md).
+For the full surface — the `Rater` orchestrator, compiled `Program`s, the
+ordered `ProgramManager`, worksheet and determination helpers, validators,
+factories, errors, and the observation surface — see
+[`guides/src/rater.md`](guides/src/rater.md).
 
 ## Package
 
