@@ -46,8 +46,6 @@ import {
 	STATUS_PRECEDENCE,
 } from './constants.js'
 
-const MESSAGE_TOKEN = /\{\{\s*([^}]+?)\s*\}\}/g
-
 /**
  * Interpolate `{{dotted.path}}` tokens in a message template against a record.
  *
@@ -75,7 +73,7 @@ export function interpolateMessage(
 	template: string,
 	record: Readonly<Record<string, unknown>>,
 ): string {
-	return template.replace(MESSAGE_TOKEN, (_match, path: string) => {
+	return template.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, path: string) => {
 		const value = resolveField(record, path.split('.'))
 		if (value === undefined) return ''
 		if (isFiniteNumber(value)) return value.toLocaleString('en-US')
