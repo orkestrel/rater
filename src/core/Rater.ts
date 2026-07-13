@@ -18,24 +18,24 @@ import type {
 	SubjectResult,
 	Tally,
 } from './types.js'
-import type { FieldPath } from '@orkestrel/contract'
 import { Emitter } from '@orkestrel/emitter'
 import {
 	createEvaluator,
 	createLogicalReasoner,
 	createQuantitativeReasoner,
 	createReason,
-	formatField,
 } from '@orkestrel/reason'
-import { isRecord, resolveField } from '@orkestrel/contract'
+import { isRecord } from '@orkestrel/contract'
 import { RaterError } from './errors.js'
 import {
+	aggregateFields,
 	aggregateGroups,
 	aggregateProjection,
 	aggregateRecord,
 	aggregateSums,
 	assertSubject,
 	emptyTallies,
+	groupFor,
 	rulesToDeterminations,
 	tallySubject,
 } from './helpers.js'
@@ -112,7 +112,7 @@ export class Rater implements RaterInterface {
 	#rateBatch(subjects: readonly Subject[]): AggregateResult {
 		for (const subject of subjects) assertSubject(subject)
 		const programs = this.#manager.programs()
-		const fields = this.#fields(programs)
+		const fields = aggregateFields(programs)
 		const sums = aggregateSums(subjects, fields)
 		// Precompute each program's whole-batch sums and groups ONCE. The per-subject
 		// projection pass, the group listing, and the aggregate-determination gates all
@@ -180,21 +180,6 @@ export class Rater implements RaterInterface {
 		this.#emitter.emit('rate', result)
 	}
 
-	#fields(programs: readonly ProgramInterface[]): readonly FieldPath[] {
-		const fields: FieldPath[] = []
-		const keys = new Set<string>()
-		for (const program of programs) {
-			for (const field of program.definition.aggregate?.fields ?? []) {
-				const key = formatField(field)
-				if (!keys.has(key)) {
-					keys.add(key)
-					fields.push(field)
-				}
-			}
-		}
-		return fields
-	}
-
 	#groups(
 		programs: readonly ProgramInterface[],
 		programGroups: ReadonlyMap<string, readonly AggregateGroup[]>,
@@ -220,20 +205,10 @@ export class Rater implements RaterInterface {
 			if (aggregate === undefined) continue
 			const sums = programSums.get(program.id)
 			if (sums === undefined) continue
-			const group = this.#group(subject, programGroups.get(program.id) ?? [], aggregate.by)
+			const group = groupFor(subject, programGroups.get(program.id) ?? [], aggregate.by)
 			output[program.id] = aggregateProjection(count, sums, group)
 		}
 		return output
-	}
-
-	#group(
-		subject: Subject,
-		groups: readonly AggregateGroup[],
-		by?: FieldPath,
-	): AggregateGroup | undefined {
-		if (by === undefined) return undefined
-		const key = String(resolveField(subject, by) ?? '')
-		return groups.find((entry) => entry.key === key)
 	}
 
 	#aggregateDeterminations(

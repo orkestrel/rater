@@ -24,6 +24,7 @@ import type {
 	Notice,
 	Premise,
 	ProgramDefinition,
+	ProgramInterface,
 	ProgramResult,
 	Ruling,
 	Stage,
@@ -703,11 +704,7 @@ export function programResult(
 ): ProgramResult {
 	const scoped = deriveDeterminationEligibility(determinations)
 	const lineEligibilities = lines.map((entry) => entry.eligibility)
-	const allIneligible =
-		lines.length > 0 && lines.every((entry) => entry.eligibility === 'ineligible')
-	const eligibility = allIneligible
-		? 'ineligible'
-		: combineEligibilities([scoped, ...lineEligibilities])
+	const eligibility = combineEligibilities([scoped, ...lineEligibilities])
 	const allDeterminations = [...determinations, ...lines.flatMap((entry) => entry.determinations)]
 	return {
 		id: definition.id,
@@ -814,6 +811,60 @@ export function aggregateGroups(
 		count: entries.length,
 		sums: aggregateSums(entries, fields),
 	}))
+}
+
+/**
+ * Collect the deduped, ordered union of every program's aggregate fields.
+ *
+ * @param programs - The compiled programs to scan
+ * @returns A fresh list of aggregate field paths, in first-seen order
+ *
+ * @example
+ * ```ts
+ * import { aggregateFields } from '@orkestrel/rater'
+ *
+ * aggregateFields(programs) // [['income'], ['assets']]
+ * ```
+ */
+export function aggregateFields(programs: readonly ProgramInterface[]): readonly FieldPath[] {
+	const fields: FieldPath[] = []
+	const keys = new Set<string>()
+	for (const program of programs) {
+		for (const field of program.definition.aggregate?.fields ?? []) {
+			const key = formatField(field)
+			if (!keys.has(key)) {
+				keys.add(key)
+				fields.push(field)
+			}
+		}
+	}
+	return fields
+}
+
+/**
+ * Locate the {@link AggregateGroup} a subject belongs to.
+ *
+ * @param subject - The subject to key
+ * @param groups - The candidate groups to search
+ * @param by - The partition key field; no group is found when absent
+ * @returns The subject's matching group, or `undefined`
+ *
+ * @example
+ * ```ts
+ * import { groupFor } from '@orkestrel/rater'
+ *
+ * groupFor({ region: 'east' }, [{ key: 'east', count: 1, sums: {} }], ['region'])
+ * // { key: 'east', count: 1, sums: {} }
+ * ```
+ */
+export function groupFor(
+	subject: Subject,
+	groups: readonly AggregateGroup[],
+	by?: FieldPath,
+): AggregateGroup | undefined {
+	if (by === undefined) return undefined
+	const key = String(resolveField(subject, by) ?? '')
+	return groups.find((entry) => entry.key === key)
 }
 
 /**

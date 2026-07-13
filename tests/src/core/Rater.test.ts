@@ -1,6 +1,12 @@
 import type { FieldPath } from '@orkestrel/contract'
-import { factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
-import type { ProgramDefinition, RaterEventMap } from '@src/core'
+import {
+	factorGroup,
+	isReasonError,
+	quantitativeDefinition,
+	staticFactor,
+	symbolicDefinition,
+} from '@orkestrel/reason'
+import type { ProgramDefinition, ProgramInterface, RaterEventMap } from '@src/core'
 import {
 	aggregateDefinition,
 	createRater,
@@ -350,6 +356,31 @@ describe('Rater — batch edge cases', () => {
 			expect(outcome.lines[0]?.worksheet?.errors.length).toBeGreaterThan(0)
 			expect(outcome.status).toBe('unrated')
 		}
+		rater.destroy()
+	})
+
+	it('validate:false with a pass reasoning the engine has no reasoner for — pins the observed contract', () => {
+		const rater = createRater({ validate: false })
+		// isProgramDefinition would reject a symbolic pass.definition (PassDefinition
+		// only allows logical/quantitative) — validate:false skips that check, and
+		// invokeRaw bypasses the statically-typed add() signature to construct it.
+		const definition = {
+			id: 'unregistered',
+			name: 'Unregistered',
+			lines: [],
+			passes: [{ definition: symbolicDefinition('e', 'E', []) }],
+		}
+		const program: ProgramInterface = invokeRaw(rater.programs, rater.programs.add, [definition])
+		const error = captureError(() => program.rate({ id: 's' }))
+		// Observed (this is the locked validate:false contract, not src behavior we
+		// changed): the shared engine has no symbolic reasoner registered, and
+		// `#engine.reason` throws a raw reason-library `ReasonError('MISSING', …)`
+		// synchronously rather than returning a failure result — `program.rate`
+		// throws an UNCAUGHT `ReasonError`, it never surfaces as a RaterError or a
+		// `success: false` ProgramResult.
+		if (!isReasonError(error)) throw new Error('expected a ReasonError')
+		expect(error.code).toBe('MISSING')
+		expect(error.context).toEqual({ definition: 'e', reasoning: 'symbolic' })
 		rater.destroy()
 	})
 })

@@ -217,6 +217,28 @@ describe('Program — authority and totals', () => {
 		engine.destroy()
 	})
 
+	it('derives denied for an ineligible outcome and submitted for a referral outcome, per ELIGIBILITY_DECISIONS', () => {
+		const engine = createEngine()
+		// A clean (never-firing) authority so the decision derives straight from
+		// base.eligibility via decideEligibility/ELIGIBILITY_DECISIONS.
+		const cleanAuthority = logicalDefinition('clean', 'Clean', [
+			rule('never', [atom('never', 'equals', true)], atom('never', 'equals', true)),
+		])
+		const denied = createProgram(
+			{ ...programWithRuling('restriction'), authority: cleanAuthority },
+			engine,
+		).rate(createRatingSubject({ flag: true }))
+		const submitted = createProgram(
+			{ ...programWithRuling('referral'), authority: cleanAuthority },
+			engine,
+		).rate(createRatingSubject({ flag: true }))
+		expect(denied.eligibility).toBe('ineligible')
+		expect(denied.decision).toBe('denied')
+		expect(submitted.eligibility).toBe('referral')
+		expect(submitted.decision).toBe('submitted')
+		engine.destroy()
+	})
+
 	it('per-program total overrides and no handler leaves total undefined', () => {
 		const engine = createEngine()
 		const noTotal = createProgram(createPropertyProgramDefinition(), engine).rate(

@@ -116,7 +116,14 @@ export interface Premise {
 	readonly met?: boolean
 }
 
-/** A resolved rule, authority, or notice outcome. */
+/**
+ * A resolved rule, authority, or notice outcome.
+ *
+ * @remarks
+ * `premises` lists only content-bearing premises — content-free atoms (an
+ * empty `any`/`none` membership check) are omitted, so its length may be
+ * smaller than the engine's boolean premise count.
+ */
 export interface Determination {
 	readonly id: string
 	readonly effect: Effect

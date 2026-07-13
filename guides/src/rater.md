@@ -240,6 +240,8 @@ determination-assembly, eligibility/status derivation, and aggregate arithmetic 
 | `assertSubject`                  | function | Assert a value is a valid rater `Subject`, narrowing it in place.                                                         |
 | `aggregateSums`                  | function | Sum aggregate fields across a batch of subjects.                                                                          |
 | `aggregateGroups`                | function | Partition a batch of subjects by a field, summing aggregate fields per partition.                                         |
+| `aggregateFields`                | function | Collect the deduped, ordered union of every program's aggregate fields.                                                   |
+| `groupFor`                       | function | Locate the `AggregateGroup` a subject belongs to.                                                                         |
 | `aggregateProjection`            | function | Build the batch aggregate working projection written under `AGGREGATE_KEY`'s value.                                       |
 | `aggregateRecord`                | function | Build the reserved-key record an aggregate gate definition runs against.                                                  |
 | `emptySums`                      | function | Build zero sums for a set of fields.                                                                                      |
@@ -382,6 +384,7 @@ Subject validation and aggregate arithmetic — the batch rating support behind
 
 ```ts
 import {
+	aggregateFields,
 	aggregateGroups,
 	aggregateProjection,
 	aggregateRecord,
@@ -390,6 +393,7 @@ import {
 	completeTallies,
 	emptySums,
 	emptyTallies,
+	groupFor,
 	hasReservedKey,
 	tallySubject,
 } from '@orkestrel/rater'
@@ -399,7 +403,8 @@ const subjects = [
 	{ id: 'b', amount: 20 },
 ]
 aggregateSums(subjects, ['amount']) // { amount: 30 }
-aggregateGroups(subjects, ['amount'], 'id') // one partition per distinct subject id
+const groups = aggregateGroups(subjects, ['amount'], 'id') // one partition per distinct subject id
+groupFor(subjects[0] ?? {}, groups, 'id') // the group the first subject belongs to
 aggregateProjection(2, { amount: 30 }) // { count: 2, sums: { amount: 30 } }
 aggregateRecord(2, { amount: 30 }) // { aggregate: { count: 2, sums: { amount: 30 } } }
 emptySums(['amount']) // { amount: 0 }

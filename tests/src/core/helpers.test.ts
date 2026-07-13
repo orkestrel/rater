@@ -60,6 +60,27 @@ describe('helpers — interpolateMessage', () => {
 		expect(interpolateMessage('Missing {{gone}}', {})).toBe('Missing ')
 		expect(interpolateMessage('Flag {{flag}}', { flag: true })).toBe('Flag true')
 	})
+
+	it('resolves adversarial prototype-targeted templates against a benign record without polluting Object.prototype', () => {
+		const before = Object.keys(Object.prototype)
+		const record = { a: { b: { c: 'leaf' } } }
+		expect(interpolateMessage('{{__proto__.x}}', record)).toBe('')
+		expect(interpolateMessage('{{constructor.prototype.y}}', record)).toBe('')
+		// `constructor` alone resolves through the prototype chain to the real
+		// Object constructor (not an exploit — just a benign, non-empty string).
+		expect(interpolateMessage('{{constructor}}', record)).toBe(String(Object))
+		expect(interpolateMessage('{{a.b.c}}', record)).toBe('leaf')
+		expect(Object.keys(Object.prototype)).toEqual(before)
+		expect(Object.hasOwn(Object.prototype, 'x')).toBe(false)
+		expect(Object.hasOwn(Object.prototype, 'y')).toBe(false)
+	})
+
+	it('coerces a resolved null to the string null, a resolved boolean to true/false, and an unresolved nested path to empty', () => {
+		expect(interpolateMessage('{{value}}', { value: null })).toBe('null')
+		expect(interpolateMessage('{{value}}', { value: true })).toBe('true')
+		expect(interpolateMessage('{{value}}', { value: false })).toBe('false')
+		expect(interpolateMessage('{{a.b.c}}', { a: { b: {} } })).toBe('')
+	})
 })
 
 describe('helpers — describeComparison', () => {
@@ -460,6 +481,16 @@ describe('helpers — outcomeProjection and programResult', () => {
 		const line = { ...createLineResult('a', 'ineligible', 10), determinations: [] }
 		const result = programResult(definition, [line], [], [], undefined, undefined, [], [])
 		expect(result.eligibility).toBe('ineligible')
+	})
+
+	it('mixed line eligibility is most-severe-wins: one ineligible + one eligible line reports ineligible', () => {
+		const definition = programDefinition('p', 'P', [])
+		const lines = [createLineResult('a', 'ineligible', 10), createLineResult('b', 'eligible', 5)]
+		const result = programResult(definition, lines, [], [], undefined, undefined, [], [])
+		expect(result.eligibility).toBe('ineligible')
+		expect(result.lines).toHaveLength(2)
+		expect(result.lines[0]?.eligibility).toBe('ineligible')
+		expect(result.lines[1]?.eligibility).toBe('eligible')
 	})
 
 	it('reports success false when any error accumulated or a line worksheet failed', () => {

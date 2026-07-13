@@ -5,7 +5,7 @@ import type { RaterErrorCode } from './types.js'
  *
  * @remarks
  * `DUPLICATE` — a program id collision on `ProgramManager.add`. `MISSING` — an
- * unknown authored line reference at compile time, or an unknown program lookup.
+ * unknown authored line reference at compile time.
  * `DEFINITION` — a program definition failed `isProgramDefinition`. `MISMATCH` —
  * a rated subject is not a record, or uses a reserved working-subject key.
  * `DESTROYED` — use of a destroyed entity.
