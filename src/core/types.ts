@@ -1,15 +1,14 @@
-import type { JSONValue } from '../contracts/index.js'
-import type { FieldPath } from '../types.js'
-import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '../emitters/index.js'
+import type { FieldPath, JSONValue } from '@orkestrel/contract'
+import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
 import type {
 	Aggregation,
 	Comparison,
 	LogicalDefinition,
 	QuantitativeDefinition,
 	Subject,
-} from '../reasons/index.js'
+} from '@orkestrel/reason'
 
-/** Advisory eligibility axis used by line and program outcomes. */
+/** Advisory eligibility axis a program or line outcome carries. */
 export type Eligibility = 'eligible' | 'ineligible' | 'referral'
 
 /** Deterministic authority decision derived from eligibility. */
@@ -24,16 +23,69 @@ export type Effect = 'restriction' | 'referral' | 'condition' | 'notice' | 'limi
 /** A worksheet derivation step stage. */
 export type Stage = 'factor' | 'group' | 'total'
 
+/** A coded {@link RaterError} programmer-error code. */
+export type RaterErrorCode = 'DUPLICATE' | 'MISSING' | 'DEFINITION' | 'MISMATCH' | 'DESTROYED'
+
 /** A pure total port over resolved lines. */
 export type TotalHandler = (lines: readonly LineResult[]) => number | undefined
 
-/** Runtime options for one compiled program. */
-export interface ProgramOptions {
-	readonly total?: TotalHandler
-	readonly labels?: Readonly<Record<string, string>>
+/**
+ * One rateable line — a quantitative definition joined to display metadata.
+ *
+ * @remarks
+ * `rate` is a plain reason {@link QuantitativeDefinition}; Rater delegates every
+ * actual evaluation of it to the shared engine.
+ */
+export interface LineDefinition {
+	readonly id: string
+	readonly name: string
+	readonly description?: string
+	readonly rate: QuantitativeDefinition
+	readonly metadata?: JSONValue
 }
 
-/** Pure authored program definition. */
+/**
+ * An ordered pre-rating pass over the working subject.
+ *
+ * @remarks
+ * `line` scopes a logical pass's determinations to one line; a quantitative pass
+ * has no line scope (its value is assigned onto the working subject under its own
+ * definition id).
+ */
+export interface PassDefinition {
+	readonly line?: string
+	readonly definition: LogicalDefinition | QuantitativeDefinition
+}
+
+/** An authored consequence routed to a fired rule by its id. */
+export interface Ruling {
+	readonly effect: Effect
+	readonly line?: string
+	readonly message?: string
+}
+
+/** An authored informational determination emitted unconditionally. */
+export interface Notice {
+	readonly id: string
+	readonly message: string
+	readonly line?: string
+}
+
+/** Batch aggregate fields, an optional partition key, and optional gates. */
+export interface AggregateDefinition {
+	readonly fields: readonly FieldPath[]
+	readonly by?: FieldPath
+	readonly gates?: LogicalDefinition
+}
+
+/**
+ * A pure authored program definition.
+ *
+ * @remarks
+ * `passes` runs in order before `lines`; `authority` (a logical definition) runs
+ * over the assembled result, extended with an outcome projection, to derive limit
+ * determinations and the final decision.
+ */
 export interface ProgramDefinition {
 	readonly id: string
 	readonly name: string
@@ -47,43 +99,13 @@ export interface ProgramDefinition {
 	readonly metadata?: JSONValue
 }
 
-/** One rateable line. */
-export interface LineDefinition {
-	readonly id: string
-	readonly name: string
-	readonly description?: string
-	readonly rate: QuantitativeDefinition
-	readonly metadata?: JSONValue
+/** Runtime options for one compiled program. */
+export interface ProgramOptions {
+	readonly total?: TotalHandler
+	readonly labels?: Readonly<Record<string, string>>
 }
 
-/** Ordered pre-rating pass over the working record. */
-export interface PassDefinition {
-	readonly line?: string
-	readonly definition: LogicalDefinition | QuantitativeDefinition
-}
-
-/** Authored consequence routed by rule id. */
-export interface Ruling {
-	readonly effect: Effect
-	readonly line?: string
-	readonly message?: string
-}
-
-/** Authored informational determination. */
-export interface Notice {
-	readonly id: string
-	readonly message: string
-	readonly line?: string
-}
-
-/** Batch aggregate fields, optional partition, and optional gates. */
-export interface AggregateDefinition {
-	readonly fields: readonly FieldPath[]
-	readonly by?: FieldPath
-	readonly gates?: LogicalDefinition
-}
-
-/** Shared checked evidence row. */
+/** A shared checked-evidence row rendered into a display-neutral sentence. */
 export interface Premise {
 	readonly field?: FieldPath
 	readonly label?: string
@@ -94,7 +116,7 @@ export interface Premise {
 	readonly met?: boolean
 }
 
-/** Resolved rule or notice result. */
+/** A resolved rule, authority, or notice outcome. */
 export interface Determination {
 	readonly id: string
 	readonly effect: Effect
@@ -104,7 +126,36 @@ export interface Determination {
 	readonly premises: readonly Premise[]
 }
 
-/** Quantitative definition joined to its result. */
+/** A resolved quantitative factor, joined to its authored metadata. */
+export interface WorksheetFactor {
+	readonly id: string
+	readonly name?: string
+	readonly description?: string
+	readonly applied: boolean
+	readonly value?: number
+	readonly premises: readonly Premise[]
+}
+
+/** A resolved quantitative group, joined to its authored metadata. */
+export interface WorksheetGroup {
+	readonly id: string
+	readonly name?: string
+	readonly description?: string
+	readonly applied: boolean
+	readonly value: number
+	readonly factors: readonly WorksheetFactor[]
+}
+
+/** A display-neutral worksheet derivation step. */
+export interface Step {
+	readonly stage: Stage
+	readonly id?: string
+	readonly name?: string
+	readonly value: number
+	readonly expression?: string
+}
+
+/** A quantitative definition joined to its result — the rating audit trail. */
 export interface Worksheet {
 	readonly id: string
 	readonly name: string
@@ -118,36 +169,7 @@ export interface Worksheet {
 	readonly success: boolean
 }
 
-/** Resolved quantitative group. */
-export interface WorksheetGroup {
-	readonly id: string
-	readonly name?: string
-	readonly description?: string
-	readonly applied: boolean
-	readonly value: number
-	readonly factors: readonly WorksheetFactor[]
-}
-
-/** Resolved quantitative factor. */
-export interface WorksheetFactor {
-	readonly id: string
-	readonly name?: string
-	readonly description?: string
-	readonly applied: boolean
-	readonly value?: number
-	readonly premises: readonly Premise[]
-}
-
-/** Display-neutral worksheet step. */
-export interface Step {
-	readonly stage: Stage
-	readonly id?: string
-	readonly name?: string
-	readonly value: number
-	readonly expression?: string
-}
-
-/** One line outcome. */
+/** One line's rating outcome. */
 export interface LineResult {
 	readonly id: string
 	readonly name: string
@@ -157,7 +179,7 @@ export interface LineResult {
 	readonly determinations: readonly Determination[]
 }
 
-/** One program outcome. */
+/** One program's rating outcome. */
 export interface ProgramResult {
 	readonly id: string
 	readonly name: string
@@ -173,13 +195,26 @@ export interface ProgramResult {
 	readonly errors: readonly string[]
 }
 
-/** One rated subject result. */
+/** One rated subject's outcome across every compiled program. */
 export interface SubjectResult {
 	readonly subject: Subject
 	readonly programs: readonly ProgramResult[]
 }
 
-/** Batch rating result. */
+/** One batch aggregate partition. */
+export interface AggregateGroup {
+	readonly key: string
+	readonly count: number
+	readonly sums: Readonly<Record<string, number>>
+}
+
+/** A status tally for one program — a count plus summed aggregate fields. */
+export interface Tally {
+	readonly count: number
+	readonly sums: Readonly<Record<string, number>>
+}
+
+/** A batch rating outcome across every subject. */
 export interface AggregateResult {
 	readonly subjects: readonly SubjectResult[]
 	readonly determinations: readonly Determination[]
@@ -189,28 +224,26 @@ export interface AggregateResult {
 	readonly sums: Readonly<Record<string, number>>
 }
 
-/** One aggregate partition. */
-export interface AggregateGroup {
-	readonly key: string
-	readonly count: number
-	readonly sums: Readonly<Record<string, number>>
-}
-
-/** Status tally for one program. */
-export interface Tally {
-	readonly count: number
-	readonly sums: Readonly<Record<string, number>>
-}
-
-/** Event map emitted by a rater. */
+/**
+ * The push observation surface of a {@link RaterInterface} (AGENTS §13).
+ *
+ * @remarks
+ * `rate` fires once per rated subject (batch or single); `aggregate` fires once
+ * per batch call; `determine` fires per APPLIED determination; `decide` fires
+ * once a program derives a decision.
+ */
 export type RaterEventMap = {
+	/** A subject was rated — carries its result. */
 	readonly rate: readonly [result: SubjectResult]
+	/** A batch was rated — carries the aggregate result. */
 	readonly aggregate: readonly [result: AggregateResult]
+	/** An applied determination was produced — carries it. */
 	readonly determine: readonly [determination: Determination]
+	/** A program derived a decision — carries the decision and its result. */
 	readonly decide: readonly [decision: Decision, result: ProgramResult]
 }
 
-/** Rater creation options. */
+/** Options for `createRater` / the `Rater` constructor. */
 export interface RaterOptions {
 	readonly on?: EmitterHooks<RaterEventMap>
 	readonly error?: EmitterErrorHandler
@@ -220,10 +253,14 @@ export interface RaterOptions {
 	readonly validate?: boolean
 }
 
-/** Coded caller misuse errors. */
-export type RaterErrorCode = 'DUPLICATE' | 'MISSING' | 'DEFINITION' | 'MISMATCH'
-
-/** Rater orchestrator contract. */
+/**
+ * The rating orchestrator over the program manager and the shared reasoning
+ * engine.
+ *
+ * @remarks
+ * The batch `rate` overload is declared FIRST (AGENTS §9.2) so an array subject
+ * resolves to the batch form.
+ */
 export interface RaterInterface {
 	readonly emitter: EmitterInterface<RaterEventMap>
 	readonly programs: ProgramManagerInterface
@@ -232,7 +269,10 @@ export interface RaterInterface {
 	destroy(): void
 }
 
-/** Compiled program contract. */
+/**
+ * A compiled program — engine-injected, rates one subject at a time against its
+ * frozen definition.
+ */
 export interface ProgramInterface {
 	readonly id: string
 	readonly name: string
@@ -240,8 +280,30 @@ export interface ProgramInterface {
 	rate(subject: Subject, aggregate?: Readonly<Record<string, unknown>>): ProgramResult
 }
 
-/** Ordered program manager contract. */
+/**
+ * The push observation surface of a {@link ProgramManagerInterface} (AGENTS §13).
+ */
+export type ProgramManagerEventMap = {
+	/** A program was added — carries its id. */
+	readonly add: readonly [id: string]
+	/** A program was removed — carries its id. */
+	readonly remove: readonly [id: string]
+	/** The manager was destroyed. */
+	readonly destroy: readonly []
+}
+
+/** Options for `createProgramManager` / the `ProgramManager` constructor. */
+export interface ProgramManagerOptions {
+	readonly on?: EmitterHooks<ProgramManagerEventMap>
+	readonly error?: EmitterErrorHandler
+	readonly total?: TotalHandler
+	readonly labels?: Readonly<Record<string, string>>
+	readonly validate?: boolean
+}
+
+/** An ordered manager over compiled programs (AGENTS §9). */
 export interface ProgramManagerInterface {
+	readonly emitter: EmitterInterface<ProgramManagerEventMap>
 	readonly size: number
 	has(id: string): boolean
 	program(id: string): ProgramInterface | undefined

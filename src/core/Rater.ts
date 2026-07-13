@@ -1,11 +1,11 @@
-import type { EmitterInterface } from '../emitters/index.js'
-import type { FieldPath } from '../types.js'
+import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
+	EvaluatorInterface,
 	LogicalDefinition,
 	LogicalResult,
-	ReasonerInterface,
+	ReasonInterface,
 	Subject,
-} from '../reasons/index.js'
+} from '@orkestrel/reason'
 import type {
 	AggregateGroup,
 	AggregateResult,
@@ -18,11 +18,16 @@ import type {
 	SubjectResult,
 	Tally,
 } from './types.js'
-import { Emitter } from '../emitters/index.js'
-import { isRecord } from '../contracts/index.js'
-import { formatField, resolveField } from '../helpers.js'
-import { createLogicalReasoner } from '../reasons/index.js'
-import { DEFAULT_RATER_VALIDATE } from './constants.js'
+import type { FieldPath } from '@orkestrel/contract'
+import { Emitter } from '@orkestrel/emitter'
+import {
+	createEvaluator,
+	createLogicalReasoner,
+	createQuantitativeReasoner,
+	createReason,
+	formatField,
+} from '@orkestrel/reason'
+import { isRecord, resolveField } from '@orkestrel/contract'
 import { RaterError } from './errors.js'
 import {
 	aggregateGroups,
@@ -31,27 +36,44 @@ import {
 	aggregateSums,
 	assertSubject,
 	emptyTallies,
-	logicalFailure,
 	rulesToDeterminations,
 	tallySubject,
 } from './helpers.js'
 import { ProgramManager } from './programs/ProgramManager.js'
 
-/** Rating orchestrator over ordered programs. */
+/**
+ * The rating orchestrator — owns the shared reasoning engine and an ordered
+ * {@link ProgramManager}, and projects results into the rating domain
+ * vocabulary.
+ *
+ * @remarks
+ * Constructs ONE shared reason engine (quantitative + logical reasoners,
+ * `bail: false`) and injects it into every compiled program — Rater performs
+ * NO evaluation arithmetic of its own; it only orchestrates and projects. The
+ * batch `rate` overload is declared FIRST (AGENTS §9.2) so an array subject
+ * resolves to the batch form. `destroy()` tears down the manager, then the
+ * engine, then the emitter LAST (AGENTS §13); afterwards every other method
+ * throws {@link RaterError} `'DESTROYED'`.
+ */
 export class Rater implements RaterInterface {
 	readonly #emitter: Emitter<RaterEventMap>
 	readonly #manager: ProgramManager
-	readonly #logical: ReasonerInterface
+	readonly #engine: ReasonInterface
+	readonly #evaluator: EvaluatorInterface
 	#destroyed = false
 
 	constructor(options?: RaterOptions) {
 		this.#emitter = new Emitter<RaterEventMap>({ on: options?.on, error: options?.error })
-		this.#manager = new ProgramManager(
-			options?.total,
-			options?.labels,
-			options?.validate ?? DEFAULT_RATER_VALIDATE,
-		)
-		this.#logical = createLogicalReasoner()
+		this.#engine = createReason({
+			reasoners: [createQuantitativeReasoner(), createLogicalReasoner()],
+			bail: false,
+		})
+		this.#evaluator = createEvaluator()
+		this.#manager = new ProgramManager(this.#engine, {
+			total: options?.total,
+			labels: options?.labels,
+			validate: options?.validate,
+		})
 		for (const definition of options?.programs ?? []) this.#manager.add(definition)
 	}
 
@@ -63,6 +85,7 @@ export class Rater implements RaterInterface {
 		return this.#manager
 	}
 
+	// Array overload first (AGENTS §9.2) so a list resolves to the batch form.
 	rate(subjects: readonly Subject[]): AggregateResult
 	rate(subject: Subject): SubjectResult
 	rate(subject: Subject | readonly Subject[]): SubjectResult | AggregateResult {
@@ -74,6 +97,7 @@ export class Rater implements RaterInterface {
 	destroy(): void {
 		if (this.#destroyed) return
 		this.#manager.destroy()
+		this.#engine.destroy()
 		this.#destroyed = true
 		this.#emitter.destroy()
 	}
@@ -246,7 +270,7 @@ export class Rater implements RaterInterface {
 		rulings: Readonly<Record<string, Ruling>> | undefined,
 	): readonly Determination[] {
 		const result = this.#reasonLogical(record, definition)
-		return rulesToDeterminations(definition, result, rulings, record, undefined)
+		return rulesToDeterminations(definition, result, rulings, record, undefined, this.#evaluator)
 	}
 
 	#tallies(
@@ -275,16 +299,20 @@ export class Rater implements RaterInterface {
 	}
 
 	#reasonLogical(subject: Subject, definition: LogicalDefinition): LogicalResult {
-		try {
-			const result = this.#logical.reason(subject, definition)
-			if (result.reasoning === 'logical') return result
-			return logicalFailure()
-		} catch (error) {
-			return logicalFailure(error instanceof Error ? error.message : String(error))
+		const result = this.#engine.reason(subject, definition)
+		if (result.reasoning === 'logical') return result
+		return {
+			reasoning: 'logical',
+			conclusion: false,
+			rules: [],
+			count: 0,
+			success: false,
+			trace: [],
+			errors: result.errors,
 		}
 	}
 
 	#ensureAlive(): void {
-		if (this.#destroyed) throw new RaterError('MISSING', 'Rater has been destroyed')
+		if (this.#destroyed) throw new RaterError('DESTROYED', 'Rater has been destroyed')
 	}
 }

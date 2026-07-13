@@ -1,7 +1,8 @@
-import type { FieldPath } from '../types.js'
+import type { FieldPath } from '@orkestrel/contract'
 import type {
 	Check,
 	CheckResult,
+	EvaluatorInterface,
 	Expression,
 	Factor,
 	FactorResult,
@@ -11,20 +12,16 @@ import type {
 	QuantitativeDefinition,
 	QuantitativeResult,
 	Rule,
-	RuleResult,
 	Subject,
-} from '../reasons/index.js'
+} from '@orkestrel/reason'
 import type {
-	AggregateDefinition,
 	AggregateGroup,
 	Decision,
 	Determination,
-	Effect,
 	Eligibility,
 	LineDefinition,
 	LineResult,
 	Notice,
-	PassDefinition,
 	Premise,
 	ProgramDefinition,
 	ProgramResult,
@@ -37,19 +34,9 @@ import type {
 	WorksheetFactor,
 	WorksheetGroup,
 } from './types.js'
-import { isFiniteNumber, isRecord } from '../contracts/index.js'
-import { extractAtoms } from '../reasons/index.js'
-import {
-	cloneValue,
-	formatField,
-	freezeValue,
-	interpolateMessage,
-	omitUndefined,
-	resolveField,
-	setField,
-} from '../helpers.js'
+import { isFiniteNumber, isRecord, resolveField } from '@orkestrel/contract'
+import { extractAtoms, formatField } from '@orkestrel/reason'
 import { RaterError } from './errors.js'
-import { isProgramDefinition } from './validators.js'
 import {
 	AGGREGATE_KEY,
 	EFFECT_ELIGIBILITIES,
@@ -59,98 +46,56 @@ import {
 	STATUS_PRECEDENCE,
 } from './constants.js'
 
-/** Build a program definition. */
-export function programDefinition(
-	id: string,
-	name: string,
-	options?: Partial<Omit<ProgramDefinition, 'id' | 'name'>>,
-): ProgramDefinition {
-	return { id, name, lines: options?.lines ?? [], ...omitUndefined(options) }
+const MESSAGE_TOKEN = /\{\{\s*([^}]+?)\s*\}\}/g
+
+/**
+ * Interpolate `{{dotted.path}}` tokens in a message template against a record.
+ *
+ * @remarks
+ * Each token is split on `.` into a {@link FieldPath} array and resolved with
+ * the contracts {@link resolveField} (a plain string field is ONE key, never
+ * dot-split — the split here is the token-to-path bridge). A finite number
+ * renders with `en-US` thousand grouping (`5010` → `5,010`); any other resolved
+ * value String-coerces. An UNRESOLVED path (the resolved value is `undefined`)
+ * renders as the empty string — the deterministic "nothing to show" rule.
+ *
+ * @param template - The message template carrying `{{dotted.path}}` tokens
+ * @param record - The record tokens resolve against
+ * @returns The template with every token replaced
+ *
+ * @example
+ * ```ts
+ * import { interpolateMessage } from '@orkestrel/rater'
+ *
+ * interpolateMessage('Limit is {{limit}}', { limit: 5010 }) // 'Limit is 5,010'
+ * interpolateMessage('Missing {{gone}}', {})                // 'Missing '
+ * ```
+ */
+export function interpolateMessage(
+	template: string,
+	record: Readonly<Record<string, unknown>>,
+): string {
+	return template.replace(MESSAGE_TOKEN, (_match, path: string) => {
+		const value = resolveField(record, path.split('.'))
+		if (value === undefined) return ''
+		if (isFiniteNumber(value)) return value.toLocaleString('en-US')
+		return String(value)
+	})
 }
 
-/** Build a line definition. */
-export function lineDefinition(
-	id: string,
-	name: string,
-	rate: QuantitativeDefinition,
-	options?: Partial<Omit<LineDefinition, 'id' | 'name' | 'rate'>>,
-): LineDefinition {
-	return { id, name, rate, ...omitUndefined(options) }
-}
-
-/** Build a pass definition. */
-export function passDefinition(
-	definition: LogicalDefinition | QuantitativeDefinition,
-	lineId?: string,
-): PassDefinition {
-	return lineId === undefined ? { definition } : { definition, line: lineId }
-}
-
-/** Build a ruling. */
-export function rulingDefinition(effect: Effect, lineId?: string, message?: string): Ruling {
-	return {
-		effect,
-		...(lineId === undefined ? {} : { line: lineId }),
-		...(message === undefined ? {} : { message }),
-	}
-}
-
-/** Build a notice. */
-export function noticeDefinition(id: string, message: string, lineId?: string): Notice {
-	return lineId === undefined ? { id, message } : { id, message, line: lineId }
-}
-
-/** Build an aggregate definition. */
-export function aggregateDefinition(
-	fields: readonly FieldPath[],
-	by?: FieldPath,
-	gates?: LogicalDefinition,
-): AggregateDefinition {
-	return { fields, ...(by === undefined ? {} : { by }), ...(gates === undefined ? {} : { gates }) }
-}
-
-/** Convert eligibility to authority decision. */
-export function decideEligibility(eligibility: Eligibility): Decision {
-	return ELIGIBILITY_DECISIONS[eligibility]
-}
-
-/** Return the most severe eligibility in a list. */
-export function combineEligibilities(eligibilities: readonly Eligibility[]): Eligibility {
-	for (const eligibility of ELIGIBILITY_PRECEDENCE) {
-		if (eligibilities.includes(eligibility)) return eligibility
-	}
-	return 'eligible'
-}
-
-/** Sum defined line amounts, returning undefined when no line has an amount. */
-export function sumAmounts(lines: readonly LineResult[]): number | undefined {
-	let total = 0
-	let count = 0
-	for (const rated of lines) {
-		if (rated.amount !== undefined) {
-			total += rated.amount
-			count += 1
-		}
-	}
-	return count === 0 ? undefined : total
-}
-
-/** Derive final status from eligibility, determinations, and unrated evidence. */
-export function deriveStatus(
-	eligibility: Eligibility,
-	determinations: readonly Determination[],
-	lines: readonly LineResult[],
-): Status {
-	if (eligibility === 'ineligible') return 'ineligible'
-	if (eligibility === 'referral') return 'referral'
-	if (determinations.some((entry) => entry.applied && entry.effect === 'condition'))
-		return 'conditional'
-	if (lines.some((entry) => !entry.worksheet?.success || entry.amount === undefined))
-		return 'unrated'
-	return 'eligible'
-}
-
-/** Describe a comparison with display-neutral words. */
+/**
+ * Describe a {@link Premise} comparison as a display-neutral verb phrase.
+ *
+ * @param comparison - The comparison to describe
+ * @returns A display-neutral phrase
+ *
+ * @example
+ * ```ts
+ * import { describeComparison } from '@orkestrel/rater'
+ *
+ * describeComparison('above') // 'is more than'
+ * ```
+ */
 export function describeComparison(comparison: NonNullable<Premise['comparison']>): string {
 	switch (comparison) {
 		case 'equals':
@@ -176,7 +121,21 @@ export function describeComparison(comparison: NonNullable<Premise['comparison']
 	}
 }
 
-/** Render one premise into a display-neutral sentence. */
+/**
+ * Render one {@link Premise} into a display-neutral sentence.
+ *
+ * @param entry - The premise to render
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A display-neutral sentence
+ *
+ * @example
+ * ```ts
+ * import { describePremise } from '@orkestrel/rater'
+ *
+ * describePremise({ field: 'age', comparison: 'above', expected: 18, actual: 25, met: true })
+ * // 'age is more than 18 ? met'
+ * ```
+ */
 export function describePremise(entry: Premise, labels?: Readonly<Record<string, string>>): string {
 	const status = entry.met === undefined ? 'unknown' : entry.met ? 'met' : 'not met'
 	if (entry.field === undefined || entry.comparison === undefined) {
@@ -189,155 +148,14 @@ export function describePremise(entry: Premise, labels?: Readonly<Record<string,
 }
 
 /**
- * Clone and deep-freeze a valid program definition.
+ * Build a {@link Premise} from an evaluated {@link Check}.
  *
- * @remarks
- * Valid definitions are cloned with strict-core {@link cloneValue}, revalidated,
- * and then frozen so callers keep ownership of their original definition. A
- * malformed definition that fails its own guard is frozen in place rather than
- * cloned; this preserves the no-assertion type contract for `validate: false`
- * callers without using a host cloning global.
- *
- * @param definition - The program definition to prepare for runtime use
- * @returns A deeply frozen program definition
- *
- * @example
- * ```ts
- * const definition = freezeProgramDefinition(programDefinition('p1', 'Program'))
- * Object.isFrozen(definition.lines) // true
- * ```
+ * @param check - The authored check
+ * @param actual - The resolved subject value
+ * @param met - Whether the check was met (absent when not yet evaluated)
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh premise
  */
-export function freezeProgramDefinition(definition: ProgramDefinition): ProgramDefinition {
-	const cloned = cloneValue(definition)
-	return isProgramDefinition(cloned) ? freezeValue(cloned) : freezeValue(definition)
-}
-
-/** Determine whether a subject contains reserved rater keys. */
-export function hasReservedKey(subject: Readonly<Record<string, unknown>>): boolean {
-	return Object.hasOwn(subject, AGGREGATE_KEY) || Object.hasOwn(subject, OUTCOME_KEY)
-}
-
-/**
- * Assert a value is a valid rater {@link Subject}, narrowing it in place.
- *
- * @param subject - The candidate subject to validate
- * @throws A `MISMATCH` {@link RaterError} when the value is not a record, or when
- * it already carries a reserved rater working-record key
- */
-export function assertSubject(subject: unknown): asserts subject is Subject {
-	if (!isRecord(subject)) throw new RaterError('MISMATCH', 'Subject must be a record')
-	if (hasReservedKey(subject)) throw new RaterError('MISMATCH', 'Subject uses a reserved rater key')
-}
-
-/**
- * Build the empty, failed {@link LogicalResult} shell.
- *
- * @param message - An optional error message; when present it becomes the result's
- * sole `errors` entry, when absent `errors` stays empty
- * @returns A fresh failed logical result
- */
-export function logicalFailure(message?: string): LogicalResult {
-	return {
-		reasoning: 'logical',
-		conclusion: false,
-		rules: [],
-		count: 0,
-		success: false,
-		trace: [],
-		errors: message === undefined ? [] : [message],
-	}
-}
-
-/**
- * Build the empty, failed {@link QuantitativeResult} shell.
- *
- * @param message - An optional error message; when present it becomes the result's
- * sole `errors` entry, when absent `errors` stays empty
- * @returns A fresh failed quantitative result
- */
-export function quantitativeFailure(message?: string): QuantitativeResult {
-	return {
-		reasoning: 'quantitative',
-		value: 0,
-		groups: [],
-		count: 0,
-		success: false,
-		trace: [],
-		errors: message === undefined ? [] : [message],
-	}
-}
-
-/** Merge equals-conclusion atoms into a working record. */
-export function mergeConclusion(record: Record<string, unknown>, rule: Rule): void {
-	for (const entry of extractAtoms(rule.conclusion)) {
-		if (entry.check.operator === 'equals') setField(record, entry.check.field, entry.check.value)
-	}
-}
-
-/** Locate a rule definition by id. */
-export function findRule(definition: LogicalDefinition, id: string): Rule | undefined {
-	return definition.rules.find((rule) => rule.id === id)
-}
-
-/** Build premises from authored checks and check results. */
-export function checkPremises(
-	checks: readonly Check[] | undefined,
-	results: readonly CheckResult[] | undefined,
-	labels?: Readonly<Record<string, string>>,
-): readonly Premise[] {
-	return (Array.isArray(checks) ? checks : []).map((check, index) => {
-		const result = results?.[index]
-		return premiseCheck(check, result?.actual, result?.met, labels)
-	})
-}
-
-/** Build premises from one logical rule result. */
-export function logicalPremises(
-	rule: Rule,
-	result: RuleResult,
-	record: Readonly<Record<string, unknown>>,
-	labels?: Readonly<Record<string, string>>,
-): readonly Premise[] {
-	const output: Premise[] = []
-	for (let index = 0; index < rule.premises.length; index += 1) {
-		const expression = rule.premises[index]
-		const met = result.premises[index]
-		if (expression === undefined) continue
-		if (expression.form === 'atom') {
-			// A membership check (`any` / `none`) over an EMPTY array value is
-			// content-free — a tautology / contradiction that reads as "is none
-			// of —" in every surface. Skip it rather than render a vacuous premise.
-			const { check } = expression
-			if (
-				(check.operator === 'any' || check.operator === 'none') &&
-				Array.isArray(check.value) &&
-				check.value.length === 0
-			) {
-				continue
-			}
-			output.push(premiseCheck(check, resolveField(record, check.field), met, labels))
-			continue
-		}
-		output.push({
-			description: describeExpression(expression, labels),
-			...(met === undefined ? {} : { met }),
-		})
-	}
-	return output
-}
-
-/** Describe a compound logical expression without atom-specific evidence. */
-export function describeExpression(
-	expression: Expression,
-	labels?: Readonly<Record<string, string>>,
-): string {
-	if (expression.form === 'atom')
-		return describePremise(premiseCheck(expression.check, undefined, undefined, labels), labels)
-	const descriptions = expression.operands.map((operand) => describeExpression(operand, labels))
-	return `${expression.operator} (${descriptions.join(', ')})`
-}
-
-/** Build a premise from a check. */
 export function premiseCheck(
 	check: Check,
 	actual: unknown,
@@ -355,30 +173,129 @@ export function premiseCheck(
 	}
 }
 
-/** Join a quantitative definition and result into a worksheet. */
-export function resultsWorksheet(
-	definition: QuantitativeDefinition,
-	result: QuantitativeResult,
+/**
+ * Build premises from a quantitative factor's authored checks and evaluated
+ * check results.
+ *
+ * @param checks - The factor's authored checks
+ * @param results - The corresponding {@link CheckResult}s, in the same order
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh list of premises, one per authored check
+ */
+export function checkPremises(
+	checks: readonly Check[] | undefined,
+	results: readonly CheckResult[] | undefined,
 	labels?: Readonly<Record<string, string>>,
-): Worksheet {
-	const authored = Array.isArray(definition.groups) ? definition.groups : []
-	const groups = authored.map((group) => worksheetGroup(group, result.groups, labels))
-	const steps = worksheetSteps(definition, result, groups)
+): readonly Premise[] {
+	return (checks ?? []).map((check, index) => {
+		const result = results?.[index]
+		return premiseCheck(check, result?.actual, result?.met, labels)
+	})
+}
+
+/**
+ * Describe a logical {@link Expression} tree without atom-specific evidence.
+ *
+ * @param expression - The expression to describe
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A display-neutral description
+ */
+export function describeExpression(
+	expression: Expression,
+	labels?: Readonly<Record<string, string>>,
+): string {
+	if (expression.form === 'atom') {
+		return describePremise(premiseCheck(expression.check, undefined, undefined, labels), labels)
+	}
+	const descriptions = expression.operands.map((operand) => describeExpression(operand, labels))
+	return `${expression.operator} (${descriptions.join(', ')})`
+}
+
+/**
+ * Build rich premises for one fired {@link Rule} by walking its premise atoms
+ * and re-evaluating each against the working subject.
+ *
+ * @remarks
+ * A reason {@link RuleResult} carries only booleans, so this is rater's own
+ * premise-audit projection: each authored premise expression is flattened to
+ * its atom leaves via {@link extractAtoms}, and each leaf's {@link Check} is
+ * re-evaluated through the injected `evaluator`. A membership check (`any` /
+ * `none`) over an EMPTY array value is content-free — a tautology or
+ * contradiction that reads as "is none of —" in every surface — and is skipped.
+ *
+ * @param rule - The authored rule
+ * @param working - The working subject to evaluate against
+ * @param evaluator - The shared reason check evaluator
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh, ordered list of rich premises
+ */
+export function logicalPremises(
+	rule: Rule,
+	working: Subject,
+	evaluator: EvaluatorInterface,
+	labels?: Readonly<Record<string, string>>,
+): readonly Premise[] {
+	const output: Premise[] = []
+	for (const premise of rule.premises) {
+		for (const atom of extractAtoms(premise)) {
+			const { check } = atom
+			if (
+				(check.operator === 'any' || check.operator === 'none') &&
+				Array.isArray(check.value) &&
+				check.value.length === 0
+			) {
+				continue
+			}
+			const result = evaluator.evaluate(check, working)
+			output.push(premiseCheck(check, result.actual, result.met, labels))
+		}
+	}
+	return output
+}
+
+/**
+ * Locate an authored {@link Rule} by id.
+ *
+ * @param definition - The logical definition to search
+ * @param id - The rule id
+ * @returns The matching rule, or `undefined`
+ */
+export function findRule(definition: LogicalDefinition, id: string): Rule | undefined {
+	return definition.rules.find((rule) => rule.id === id)
+}
+
+/**
+ * Join one authored quantitative factor to its evaluated {@link FactorResult}.
+ *
+ * @param definition - The authored factor
+ * @param results - The group's factor results
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh worksheet factor
+ */
+export function worksheetFactor(
+	definition: Factor,
+	results: readonly FactorResult[],
+	labels?: Readonly<Record<string, string>>,
+): WorksheetFactor {
+	const result = results.find((entry) => entry.id === definition.id)
 	return {
 		id: definition.id,
 		name: definition.name,
-		aggregation: definition.aggregation,
-		...(definition.precision === undefined ? {} : { precision: definition.precision }),
-		value: result.value,
-		groups,
-		steps,
-		trace: [...result.trace],
-		errors: [...result.errors],
-		success: result.success,
+		...(definition.description === undefined ? {} : { description: definition.description }),
+		applied: result?.applied ?? false,
+		...(result?.value === undefined ? {} : { value: result.value }),
+		premises: checkPremises(definition.checks, result?.checks, labels),
 	}
 }
 
-/** Join one group definition to its result. */
+/**
+ * Join one authored quantitative group to its evaluated {@link GroupResult}.
+ *
+ * @param definition - The authored group
+ * @param results - The definition's group results
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh worksheet group
+ */
 export function worksheetGroup(
 	definition: QuantitativeDefinition['groups'][number],
 	results: readonly GroupResult[],
@@ -391,30 +308,46 @@ export function worksheetGroup(
 		...(definition.description === undefined ? {} : { description: definition.description }),
 		applied: result?.applied ?? false,
 		value: result?.value ?? 0,
-		factors: (Array.isArray(definition.factors) ? definition.factors : []).map((factor) =>
+		factors: definition.factors.map((factor) =>
 			worksheetFactor(factor, result?.factors ?? [], labels),
 		),
 	}
 }
 
-/** Join one factor definition to its result. */
-export function worksheetFactor(
-	definition: Factor,
-	results: readonly FactorResult[],
-	labels?: Readonly<Record<string, string>>,
-): WorksheetFactor {
-	const result = results.find((entry) => entry.id === definition.id)
+/**
+ * Build one display-neutral {@link Step} row.
+ *
+ * @param stage - The step's stage
+ * @param id - The stage's authored id, when it has one
+ * @param name - The stage's authored name, when it has one
+ * @param value - The stage's resolved value
+ * @param expression - A display-neutral expression string
+ * @returns A fresh step
+ */
+export function worksheetStep(
+	stage: Stage,
+	id: string | undefined,
+	name: string | undefined,
+	value: number,
+	expression: string,
+): Step {
 	return {
-		id: definition.id,
-		name: definition.name,
-		...(definition.description === undefined ? {} : { description: definition.description }),
-		applied: result?.applied ?? false,
-		...(result === undefined ? {} : { value: result.value }),
-		premises: checkPremises(definition.checks, result?.checks, labels),
+		stage,
+		...(id === undefined ? {} : { id }),
+		...(name === undefined ? {} : { name }),
+		value,
+		expression,
 	}
 }
 
-/** Build worksheet step rows. */
+/**
+ * Build the ordered {@link Step} rows for a resolved {@link Worksheet}.
+ *
+ * @param definition - The authored quantitative definition
+ * @param result - The evaluated quantitative result
+ * @param groups - The definition's already-joined worksheet groups
+ * @returns A fresh, ordered list of steps: applied factors, then groups, then the total
+ */
 export function worksheetSteps(
 	definition: QuantitativeDefinition,
 	result: QuantitativeResult,
@@ -451,30 +384,55 @@ export function worksheetSteps(
 	return output
 }
 
-/** Build one worksheet step. */
-export function worksheetStep(
-	stage: Stage,
-	id: string | undefined,
-	name: string | undefined,
-	value: number,
-	expression: string,
-): Step {
+/**
+ * Join a {@link QuantitativeDefinition} and its {@link QuantitativeResult} into
+ * a {@link Worksheet} — the rating audit trail.
+ *
+ * @param definition - The authored quantitative definition
+ * @param result - The evaluated quantitative result
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh worksheet
+ */
+export function resultsWorksheet(
+	definition: QuantitativeDefinition,
+	result: QuantitativeResult,
+	labels?: Readonly<Record<string, string>>,
+): Worksheet {
+	const groups = definition.groups.map((group) => worksheetGroup(group, result.groups, labels))
 	return {
-		stage,
-		...(id === undefined ? {} : { id }),
-		...(name === undefined ? {} : { name }),
-		value,
-		expression,
+		id: definition.id,
+		name: definition.name,
+		aggregation: definition.aggregation,
+		...(definition.precision === undefined ? {} : { precision: definition.precision }),
+		value: result.value,
+		groups,
+		steps: worksheetSteps(definition, result, groups),
+		trace: result.trace,
+		errors: result.errors,
+		success: result.success,
 	}
 }
 
-/** Convert logical rule results into determinations. */
+/**
+ * Convert fired logical {@link RuleResult}s into line- or program-scoped
+ * {@link Determination}s.
+ *
+ * @param definition - The authored logical definition
+ * @param result - The evaluated logical result
+ * @param rulings - Authored consequences, keyed by rule id
+ * @param working - The working subject the rules ran against
+ * @param line - The line id this pass is scoped to, when it is line-scoped
+ * @param evaluator - The shared reason check evaluator
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh list of determinations
+ */
 export function rulesToDeterminations(
 	definition: LogicalDefinition,
 	result: LogicalResult,
 	rulings: Readonly<Record<string, Ruling>> | undefined,
-	record: Readonly<Record<string, unknown>>,
-	lineId: string | undefined,
+	working: Subject,
+	line: string | undefined,
+	evaluator: EvaluatorInterface,
 	labels?: Readonly<Record<string, string>>,
 ): readonly Determination[] {
 	const output: Determination[] = []
@@ -483,7 +441,7 @@ export function rulesToDeterminations(
 		if (authored === undefined) continue
 		const routed = rulings?.[entry.id]
 		if (!entry.applied && routed === undefined) continue
-		const resolved = routed?.line ?? lineId
+		const resolved = routed?.line ?? line
 		output.push({
 			id: entry.id,
 			effect: routed?.effect ?? 'restriction',
@@ -491,19 +449,31 @@ export function rulesToDeterminations(
 			...(resolved === undefined ? {} : { line: resolved }),
 			...(routed?.message === undefined
 				? {}
-				: { message: interpolateMessage(routed.message, record) }),
-			premises: logicalPremises(authored, entry, record, labels),
+				: { message: interpolateMessage(routed.message, working) }),
+			premises: logicalPremises(authored, working, evaluator, labels),
 		})
 	}
 	return output
 }
 
-/** Convert authority results into limit determinations. */
+/**
+ * Convert an authority's fired {@link RuleResult}s into `limit`
+ * {@link Determination}s.
+ *
+ * @param definition - The authority's logical definition
+ * @param result - The evaluated logical result
+ * @param rulings - Authored consequences, keyed by rule id
+ * @param working - The working subject the authority ran against
+ * @param evaluator - The shared reason check evaluator
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh list of `limit` determinations
+ */
 export function authorityToDeterminations(
 	definition: LogicalDefinition,
 	result: LogicalResult,
 	rulings: Readonly<Record<string, Ruling>> | undefined,
-	record: Readonly<Record<string, unknown>>,
+	working: Subject,
+	evaluator: EvaluatorInterface,
 	labels?: Readonly<Record<string, string>>,
 ): readonly Determination[] {
 	const output: Determination[] = []
@@ -519,29 +489,42 @@ export function authorityToDeterminations(
 			...(routed?.line === undefined ? {} : { line: routed.line }),
 			...(routed?.message === undefined
 				? {}
-				: { message: interpolateMessage(routed.message, record) }),
-			premises: logicalPremises(authored, entry, record, labels),
+				: { message: interpolateMessage(routed.message, working) }),
+			premises: logicalPremises(authored, working, evaluator, labels),
 		})
 	}
 	return output
 }
 
-/** Convert notices into applied notice determinations. */
+/**
+ * Convert authored {@link Notice}s into unconditionally-applied
+ * `notice` {@link Determination}s.
+ *
+ * @param notices - The authored notices
+ * @param working - The working subject to interpolate messages against
+ * @returns A fresh list of notice determinations
+ */
 export function noticesToDeterminations(
 	notices: readonly Notice[] | undefined,
-	record: Readonly<Record<string, unknown>>,
+	working: Readonly<Record<string, unknown>>,
 ): readonly Determination[] {
 	return (notices ?? []).map((entry) => ({
 		id: entry.id,
 		effect: 'notice',
 		applied: true,
 		...(entry.line === undefined ? {} : { line: entry.line }),
-		message: interpolateMessage(entry.message, record),
+		message: interpolateMessage(entry.message, working),
 		premises: [],
 	}))
 }
 
-/** Keep only line-scoped determinations for a line. */
+/**
+ * Keep only the determinations scoped to one line.
+ *
+ * @param determinations - The determinations to filter
+ * @param id - The line id to keep
+ * @returns The determinations whose `line` matches `id`
+ */
 export function filterLineDeterminations(
 	determinations: readonly Determination[],
 	id: string,
@@ -549,14 +532,32 @@ export function filterLineDeterminations(
 	return determinations.filter((entry) => entry.line === id)
 }
 
-/** Keep only program-scoped determinations. */
+/**
+ * Keep only program-scoped (line-unscoped) determinations.
+ *
+ * @param determinations - The determinations to filter
+ * @returns The determinations with no `line`
+ */
 export function filterProgramDeterminations(
 	determinations: readonly Determination[],
 ): readonly Determination[] {
 	return determinations.filter((entry) => entry.line === undefined)
 }
 
-/** Derive eligibility impact from determinations. */
+/**
+ * Derive the eligibility impact of a set of determinations.
+ *
+ * @param determinations - The determinations to fold
+ * @returns The most severe eligibility any APPLIED determination's effect carries
+ *
+ * @example
+ * ```ts
+ * import { deriveDeterminationEligibility } from '@orkestrel/rater'
+ *
+ * deriveDeterminationEligibility([{ id: 'r1', effect: 'restriction', applied: true, premises: [] }])
+ * // 'ineligible'
+ * ```
+ */
 export function deriveDeterminationEligibility(
 	determinations: readonly Determination[],
 ): Eligibility {
@@ -568,38 +569,109 @@ export function deriveDeterminationEligibility(
 	return combineEligibilities(impacts)
 }
 
-/** Build an unrated line shell. */
-export function unratedLine(
-	definition: LineDefinition,
-	determinations: readonly Determination[],
-): LineResult {
-	return {
-		id: definition.id,
-		name: definition.name,
-		eligibility: deriveDeterminationEligibility(determinations),
-		determinations,
+/**
+ * Return the most severe {@link Eligibility} in a list.
+ *
+ * @param eligibilities - The eligibilities to combine
+ * @returns The most severe eligibility, or `'eligible'` for an empty list
+ *
+ * @example
+ * ```ts
+ * import { combineEligibilities } from '@orkestrel/rater'
+ *
+ * combineEligibilities(['eligible', 'referral']) // 'referral'
+ * ```
+ */
+export function combineEligibilities(eligibilities: readonly Eligibility[]): Eligibility {
+	for (const eligibility of ELIGIBILITY_PRECEDENCE) {
+		if (eligibilities.includes(eligibility)) return eligibility
 	}
+	return 'eligible'
 }
 
-/** Build a rated line result. */
+/**
+ * Convert an {@link Eligibility} to its deterministic authority {@link Decision}.
+ *
+ * @param eligibility - The eligibility to convert
+ * @returns The matching decision
+ */
+export function decideEligibility(eligibility: Eligibility): Decision {
+	return ELIGIBILITY_DECISIONS[eligibility]
+}
+
+/**
+ * Derive the final {@link Status} from eligibility, determinations, and rated
+ * line evidence.
+ *
+ * @param eligibility - The program's combined eligibility
+ * @param determinations - Every determination in scope (program and line)
+ * @param lines - The program's rated lines
+ * @returns The derived status
+ */
+export function deriveStatus(
+	eligibility: Eligibility,
+	determinations: readonly Determination[],
+	lines: readonly LineResult[],
+): Status {
+	if (eligibility === 'ineligible') return 'ineligible'
+	if (eligibility === 'referral') return 'referral'
+	if (determinations.some((entry) => entry.applied && entry.effect === 'condition'))
+		return 'conditional'
+	if (lines.some((entry) => !(entry.worksheet?.success ?? false) || entry.amount === undefined))
+		return 'unrated'
+	return 'eligible'
+}
+
+/**
+ * Build a rated {@link LineResult} from a line's evaluated
+ * {@link QuantitativeResult}.
+ *
+ * @param definition - The authored line definition
+ * @param result - The evaluated quantitative result
+ * @param determinations - The line-scoped determinations
+ * @param labels - Optional field-to-label overrides, keyed by dot-joined field
+ * @returns A fresh line result
+ */
 export function ratedLine(
 	definition: LineDefinition,
 	result: QuantitativeResult,
 	determinations: readonly Determination[],
 	labels?: Readonly<Record<string, string>>,
 ): LineResult {
-	const joined = resultsWorksheet(definition.rate, result, labels)
 	return {
 		id: definition.id,
 		name: definition.name,
 		eligibility: deriveDeterminationEligibility(determinations),
 		...(result.success ? { amount: result.value } : {}),
-		worksheet: joined,
+		worksheet: resultsWorksheet(definition.rate, result, labels),
 		determinations,
 	}
 }
 
-/** Build an outcome projection for authority. */
+/**
+ * Sum defined line amounts.
+ *
+ * @param lines - The rated lines
+ * @returns The sum of every line's `amount`, or `undefined` when no line has one
+ */
+export function sumAmounts(lines: readonly LineResult[]): number | undefined {
+	let total = 0
+	let count = 0
+	for (const rated of lines) {
+		if (rated.amount !== undefined) {
+			total += rated.amount
+			count += 1
+		}
+	}
+	return count === 0 ? undefined : total
+}
+
+/**
+ * Build an authority outcome projection from an assembled {@link ProgramResult}.
+ *
+ * @param result - The program result computed before authority runs
+ * @returns A record shaped for the authority's `outcome` projection
+ */
 export function outcomeProjection(result: ProgramResult): Readonly<Record<string, unknown>> {
 	const lines: Record<string, unknown> = {}
 	for (const rated of result.lines) {
@@ -608,30 +680,43 @@ export function outcomeProjection(result: ProgramResult): Readonly<Record<string
 	return { eligibility: result.eligibility, status: result.status, total: result.total, lines }
 }
 
-/** Build a final program result from parts. */
+/**
+ * Assemble a final {@link ProgramResult} from its rated parts.
+ *
+ * @param definition - The authored program definition
+ * @param lines - The program's rated lines
+ * @param determinations - The program-scoped determinations
+ * @param derivations - The pass-level quantitative worksheets
+ * @param total - The program's total amount, when the total handler produced one
+ * @param decision - The authority-derived decision, when one was reached
+ * @param trace - The accumulated reasoning trace
+ * @param errors - The accumulated reasoning errors
+ * @returns A fresh program result
+ */
 export function programResult(
 	definition: ProgramDefinition,
 	lines: readonly LineResult[],
 	determinations: readonly Determination[],
 	derivations: readonly Worksheet[],
 	total: number | undefined,
+	decision: Decision | undefined,
 	trace: readonly string[],
 	errors: readonly string[],
 ): ProgramResult {
-	const lineEligibilities = lines.map((entry) => entry.eligibility)
 	const scoped = deriveDeterminationEligibility(determinations)
+	const lineEligibilities = lines.map((entry) => entry.eligibility)
 	const allIneligible =
 		lines.length > 0 && lines.every((entry) => entry.eligibility === 'ineligible')
 	const eligibility = allIneligible
 		? 'ineligible'
 		: combineEligibilities([scoped, ...lineEligibilities])
 	const allDeterminations = [...determinations, ...lines.flatMap((entry) => entry.determinations)]
-	const status = deriveStatus(eligibility, allDeterminations, lines)
 	return {
 		id: definition.id,
 		name: definition.name,
 		eligibility,
-		status,
+		status: deriveStatus(eligibility, allDeterminations, lines),
+		...(decision === undefined ? {} : { decision }),
 		lines,
 		determinations,
 		derivations,
@@ -642,7 +727,52 @@ export function programResult(
 	}
 }
 
-/** Build aggregate sums for fields. */
+/**
+ * Return authored line references (in passes, rulings, or notices) that name
+ * no line on the program.
+ *
+ * @param definition - The program definition to check
+ * @returns A fresh, deduped list of missing line ids
+ */
+export function findMissingLineReferences(definition: ProgramDefinition): readonly string[] {
+	const ids = new Set(definition.lines.map((entry) => entry.id))
+	const missing = new Set<string>()
+	for (const entry of definition.passes ?? []) {
+		if (entry.line !== undefined && !ids.has(entry.line)) missing.add(entry.line)
+	}
+	for (const entry of Object.values(definition.rulings ?? {})) {
+		if (entry.line !== undefined && !ids.has(entry.line)) missing.add(entry.line)
+	}
+	for (const entry of definition.notices ?? []) {
+		if (entry.line !== undefined && !ids.has(entry.line)) missing.add(entry.line)
+	}
+	return [...missing]
+}
+
+/** Determine whether a working record already carries a reserved rater key. */
+export function hasReservedKey(subject: Readonly<Record<string, unknown>>): boolean {
+	return Object.hasOwn(subject, AGGREGATE_KEY) || Object.hasOwn(subject, OUTCOME_KEY)
+}
+
+/**
+ * Assert a value is a valid rater {@link Subject}, narrowing it in place.
+ *
+ * @param subject - The candidate subject to validate
+ * @throws {@link RaterError} `'MISMATCH'` when the value is not a record, or
+ * when it already carries a reserved rater working-subject key
+ */
+export function assertSubject(subject: unknown): asserts subject is Subject {
+	if (!isRecord(subject)) throw new RaterError('MISMATCH', 'Subject must be a record')
+	if (hasReservedKey(subject)) throw new RaterError('MISMATCH', 'Subject uses a reserved rater key')
+}
+
+/**
+ * Sum aggregate fields across a batch of subjects.
+ *
+ * @param subjects - The batch of subjects
+ * @param fields - The fields to sum
+ * @returns A fresh record of dot-joined field to summed finite value
+ */
 export function aggregateSums(
 	subjects: readonly Subject[],
 	fields: readonly FieldPath[],
@@ -659,7 +789,15 @@ export function aggregateSums(
 	return sums
 }
 
-/** Build aggregate groups. */
+/**
+ * Partition a batch of subjects by a field, summing aggregate fields per
+ * partition.
+ *
+ * @param subjects - The batch of subjects
+ * @param fields - The fields to sum within each partition
+ * @param by - The partition key field; no partition is built when absent
+ * @returns A fresh list of aggregate groups, or an empty list when `by` is absent
+ */
 export function aggregateGroups(
 	subjects: readonly Subject[],
 	fields: readonly FieldPath[],
@@ -680,7 +818,15 @@ export function aggregateGroups(
 	}))
 }
 
-/** Build an aggregate working projection. */
+/**
+ * Build the batch aggregate working projection written under
+ * {@link AGGREGATE_KEY}'s value.
+ *
+ * @param count - The batch (or partition) subject count
+ * @param sums - The summed aggregate fields
+ * @param group - The subject's own partition, when the aggregate is partitioned
+ * @returns A fresh aggregate projection record
+ */
 export function aggregateProjection(
 	count: number,
 	sums: Readonly<Record<string, number>>,
@@ -689,7 +835,14 @@ export function aggregateProjection(
 	return { count, sums, ...(group === undefined ? {} : { group }) }
 }
 
-/** Build an aggregate gate record. */
+/**
+ * Build the reserved-key record an aggregate gate definition runs against.
+ *
+ * @param count - The batch (or partition) subject count
+ * @param sums - The summed aggregate fields
+ * @param group - The subject's own partition, when the aggregate is partitioned
+ * @returns A fresh record carrying the aggregate projection under {@link AGGREGATE_KEY}
+ */
 export function aggregateRecord(
 	count: number,
 	sums: Readonly<Record<string, number>>,
@@ -698,14 +851,25 @@ export function aggregateRecord(
 	return { [AGGREGATE_KEY]: aggregateProjection(count, sums, group) }
 }
 
-/** Build zero sums for fields. */
+/**
+ * Build zero sums for a set of fields.
+ *
+ * @param fields - The fields to zero
+ * @returns A fresh record of dot-joined field to `0`
+ */
 export function emptySums(fields: readonly FieldPath[]): Readonly<Record<string, number>> {
 	const sums: Record<string, number> = {}
 	for (const field of fields) sums[formatField(field)] = 0
 	return sums
 }
 
-/** Complete a tally record. */
+/**
+ * Complete a partial status tally record with zero entries for every missing
+ * {@link Status}.
+ *
+ * @param entries - The partial tally entries to complete
+ * @returns A record with all five statuses present
+ */
 export function completeTallies(
 	entries: Partial<Record<Status, Tally>>,
 ): Readonly<Record<Status, Tally>> {
@@ -718,22 +882,34 @@ export function completeTallies(
 	}
 }
 
-/** Build empty status tallies in precedence order. */
+/**
+ * Build empty status tallies in precedence order.
+ *
+ * @param fields - The fields each tally's sums are zeroed for
+ * @returns A fresh, complete tally record
+ */
 export function emptyTallies(fields: readonly FieldPath[]): Readonly<Record<Status, Tally>> {
 	const entries: Partial<Record<Status, Tally>> = {}
 	for (const status of STATUS_PRECEDENCE) entries[status] = { count: 0, sums: emptySums(fields) }
 	return completeTallies(entries)
 }
 
-/** Add a subject to status tallies. */
+/**
+ * Add one subject's aggregate contribution to a status tally record.
+ *
+ * @param tallies - The tallies to update
+ * @param status - The subject's derived status
+ * @param subject - The subject to fold in
+ * @param fields - The fields to sum
+ * @returns A fresh, complete tally record with the subject folded in
+ */
 export function tallySubject(
 	tallies: Readonly<Record<Status, Tally>>,
 	status: Status,
 	subject: Subject,
 	fields: readonly FieldPath[],
 ): Readonly<Record<Status, Tally>> {
-	const updated: Partial<Record<Status, Tally>> = {}
-	for (const entry of STATUS_PRECEDENCE) updated[entry] = tallies[entry]
+	const updated: Partial<Record<Status, Tally>> = { ...tallies }
 	const current = tallies[status]
 	const sums: Record<string, number> = { ...current.sums }
 	for (const field of fields) {
@@ -743,46 +919,4 @@ export function tallySubject(
 	}
 	updated[status] = { count: current.count + 1, sums }
 	return completeTallies(updated)
-}
-
-/** Return authored line references that do not match a program line id. */
-export function findMissingLineReferences(definition: ProgramDefinition): readonly string[] {
-	const ids = new Set(definition.lines.map((entry) => entry.id))
-	const missing = new Set<string>()
-	for (const entry of definition.passes ?? []) {
-		if (entry.line !== undefined && !ids.has(entry.line)) missing.add(entry.line)
-	}
-	for (const entry of Object.values(definition.rulings ?? {})) {
-		if (entry.line !== undefined && !ids.has(entry.line)) missing.add(entry.line)
-	}
-	for (const entry of definition.notices ?? []) {
-		if (entry.line !== undefined && !ids.has(entry.line)) missing.add(entry.line)
-	}
-	return [...missing]
-}
-/** Add late determinations to their placement and optionally derive a decision. */
-export function appendDeterminations(
-	result: ProgramResult,
-	determinations: readonly Determination[],
-	decision: Decision | undefined,
-	trace: readonly string[] = [],
-	errors: readonly string[] = [],
-): ProgramResult {
-	const lines = result.lines.map((rated) => ({
-		...rated,
-		determinations: [
-			...rated.determinations,
-			...filterLineDeterminations(determinations, rated.id),
-		],
-	}))
-	const mergedErrors = [...result.errors, ...errors]
-	return {
-		...result,
-		lines,
-		determinations: [...result.determinations, ...filterProgramDeterminations(determinations)],
-		...(decision === undefined ? {} : { decision }),
-		success: result.success && errors.length === 0,
-		trace: [...result.trace, ...trace],
-		errors: mergedErrors,
-	}
 }

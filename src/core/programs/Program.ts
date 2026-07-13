@@ -1,11 +1,10 @@
 import type {
-	LogicalDefinition,
-	LogicalResult,
+	EvaluatorInterface,
 	QuantitativeDefinition,
 	QuantitativeResult,
-	ReasonerInterface,
+	ReasonInterface,
 	Subject,
-} from '../../reasons/index.js'
+} from '@orkestrel/reason'
 import type {
 	Determination,
 	LineResult,
@@ -15,58 +14,61 @@ import type {
 	ProgramResult,
 	Worksheet,
 } from '../types.js'
-import { createLogicalReasoner, createQuantitativeReasoner } from '../../reasons/index.js'
-import { setField } from '../../helpers.js'
-import { RaterError } from '../errors.js'
-import { AGGREGATE_KEY, OUTCOME_KEY } from '../constants.js'
 import {
-	appendDeterminations,
+	assignField,
+	buildErrorResult,
+	createEvaluator,
+	extractConclusions,
+	mergeSubjects,
+} from '@orkestrel/reason'
+import { AGGREGATE_KEY, OUTCOME_KEY } from '../constants.js'
+import { RaterError } from '../errors.js'
+import {
 	assertSubject,
 	authorityToDeterminations,
 	decideEligibility,
-	freezeProgramDefinition,
+	deriveDeterminationEligibility,
 	filterLineDeterminations,
-	logicalFailure,
-	mergeConclusion,
+	filterProgramDeterminations,
 	findMissingLineReferences,
+	findRule,
 	noticesToDeterminations,
 	outcomeProjection,
-	filterProgramDeterminations,
 	programResult,
-	quantitativeFailure,
 	ratedLine,
-	rulesToDeterminations,
 	resultsWorksheet,
-	deriveDeterminationEligibility,
+	rulesToDeterminations,
 } from '../helpers.js'
 
-/** Compiled program that rates one subject with deterministic evidence. */
+/**
+ * A compiled program — rates one subject at a time over an injected, shared
+ * reasoning engine.
+ *
+ * @remarks
+ * The engine is INJECTED and never owned, destroyed, or otherwise mutated by
+ * the program: every actual evaluation (passes, lines, authority) delegates to
+ * it. `rate` builds its working subject through copy-on-write overlays only —
+ * the caller's `subject` is never mutated.
+ */
 export class Program implements ProgramInterface {
 	readonly #definition: ProgramDefinition
+	readonly #engine: ReasonInterface
+	readonly #evaluator: EvaluatorInterface
 	readonly #total: ProgramOptions['total']
 	readonly #labels: Readonly<Record<string, string>> | undefined
-	readonly #logical: ReasonerInterface
-	readonly #quantitative: ReasonerInterface
 
-	constructor(definition: ProgramDefinition, options?: ProgramOptions) {
+	constructor(definition: ProgramDefinition, reason: ReasonInterface, options?: ProgramOptions) {
 		const missing = findMissingLineReferences(definition)
 		if (missing.length > 0) {
 			throw new RaterError('MISSING', `Unknown line reference: ${missing.join(', ')}`, {
 				program: definition.id,
 			})
 		}
-		try {
-			this.#definition = freezeProgramDefinition(definition)
-		} catch (error) {
-			throw new RaterError('DEFINITION', 'Program definition could not be cloned', {
-				program: definition.id,
-				error: error instanceof Error ? error.message : String(error),
-			})
-		}
+		this.#definition = definition
+		this.#engine = reason
+		this.#evaluator = createEvaluator()
 		this.#total = options?.total
 		this.#labels = options?.labels
-		this.#logical = createLogicalReasoner()
-		this.#quantitative = createQuantitativeReasoner()
 	}
 
 	get id(): string {
@@ -83,81 +85,100 @@ export class Program implements ProgramInterface {
 
 	rate(subject: Subject, aggregate?: Readonly<Record<string, unknown>>): ProgramResult {
 		assertSubject(subject)
-		const record: Record<string, unknown> = { ...subject }
-		if (aggregate !== undefined) record[AGGREGATE_KEY] = aggregate
+		let working: Subject =
+			aggregate === undefined ? subject : assignField(subject, AGGREGATE_KEY, aggregate)
 		const determinations: Determination[] = []
 		const derivations: Worksheet[] = []
 		const trace: string[] = []
 		const errors: string[] = []
 
-		for (const entry of this.#definition.passes ?? []) {
-			if (entry.definition.reasoning === 'logical') {
-				const result = this.#reasonLogical(record, entry.definition)
+		for (const pass of this.#definition.passes ?? []) {
+			if (pass.definition.reasoning === 'quantitative') {
+				const result = this.#engine.reason(working, pass.definition)
 				trace.push(...result.trace)
 				errors.push(...result.errors)
-				determinations.push(
-					...rulesToDeterminations(
-						entry.definition,
-						result,
-						this.#definition.rulings,
-						record,
-						entry.line,
-						this.#labels,
-					),
-				)
-				for (const rated of result.rules) {
-					if (rated.applied) {
-						const rule = entry.definition.rules.find((candidate) => candidate.id === rated.id)
-						if (rule !== undefined) mergeConclusion(record, rule)
-					}
+				if (result.reasoning === 'quantitative') {
+					working = assignField(working, pass.definition.id, result.value)
+					derivations.push(resultsWorksheet(pass.definition, result, this.#labels))
 				}
 			} else {
-				const result = this.#reasonQuantitative(record, entry.definition)
+				const result = this.#engine.reason(working, pass.definition)
 				trace.push(...result.trace)
 				errors.push(...result.errors)
-				setField(record, entry.definition.id, result.value)
-				derivations.push(resultsWorksheet(entry.definition, result, this.#labels))
+				if (result.reasoning === 'logical') {
+					determinations.push(
+						...rulesToDeterminations(
+							pass.definition,
+							result,
+							this.#definition.rulings,
+							working,
+							pass.line,
+							this.#evaluator,
+							this.#labels,
+						),
+					)
+					for (const entry of result.rules) {
+						if (!entry.applied) continue
+						const rule = findRule(pass.definition, entry.id)
+						if (rule !== undefined)
+							working = mergeSubjects(working, extractConclusions(rule.conclusion))
+					}
+				}
 			}
 		}
 
-		determinations.push(...noticesToDeterminations(this.#definition.notices, record))
+		determinations.push(...noticesToDeterminations(this.#definition.notices, working))
 		const scoped = filterProgramDeterminations(determinations)
-		const lines = this.#rateLines(record, scoped, determinations, errors)
+		const lines = this.#rateLines(working, scoped, determinations)
 		const total = this.#total?.(lines)
-		const base = programResult(this.#definition, lines, scoped, derivations, total, trace, errors)
+		const base = programResult(
+			this.#definition,
+			lines,
+			scoped,
+			derivations,
+			total,
+			undefined,
+			trace,
+			errors,
+		)
 		if (this.#definition.authority === undefined) return base
-		const authorityRecord = { ...record, [OUTCOME_KEY]: outcomeProjection(base) }
-		const authority = this.#reasonLogical(authorityRecord, this.#definition.authority)
+
+		const authorityWorking = assignField(working, OUTCOME_KEY, outcomeProjection(base))
+		const authorityResult = this.#engine.reason(authorityWorking, this.#definition.authority)
+		if (authorityResult.reasoning !== 'logical') return base
 		const limits = authorityToDeterminations(
 			this.#definition.authority,
-			authority,
+			authorityResult,
 			this.#definition.rulings,
-			authorityRecord,
+			authorityWorking,
+			this.#evaluator,
 			this.#labels,
 		)
-		return appendDeterminations(
-			base,
-			limits,
-			limits.length === 0 && authority.errors.length === 0
+		const decision =
+			limits.length === 0 && authorityResult.errors.length === 0
 				? decideEligibility(base.eligibility)
-				: undefined,
-			authority.trace,
-			authority.errors,
+				: undefined
+		return programResult(
+			this.#definition,
+			lines,
+			[...scoped, ...limits],
+			derivations,
+			total,
+			decision,
+			[...trace, ...authorityResult.trace],
+			[...errors, ...authorityResult.errors],
 		)
 	}
 
 	#rateLines(
-		record: Readonly<Record<string, unknown>>,
+		working: Subject,
 		context: readonly Determination[],
 		determinations: readonly Determination[],
-		errors: string[],
 	): readonly LineResult[] {
 		const lines: LineResult[] = []
 		for (const entry of this.#definition.lines) {
 			const own = filterLineDeterminations(determinations, entry.id)
-			const result = this.#reasonQuantitative(record, entry.rate)
-			errors.push(...result.errors)
-			const line = ratedLine(entry, result, own, this.#labels)
+			const line = ratedLine(entry, this.#quantitative(working, entry.rate), own, this.#labels)
 			lines.push({
 				...line,
 				eligibility: deriveDeterminationEligibility([...context, ...line.determinations]),
@@ -166,23 +187,25 @@ export class Program implements ProgramInterface {
 		return lines
 	}
 
-	#reasonLogical(subject: Subject, definition: LogicalDefinition): LogicalResult {
-		try {
-			const result = this.#logical.reason(subject, definition)
-			if (result.reasoning === 'logical') return result
-			return logicalFailure(`Expected logical result, got ${result.reasoning}`)
-		} catch (error) {
-			return logicalFailure(error instanceof Error ? error.message : String(error))
-		}
-	}
-
-	#reasonQuantitative(subject: Subject, definition: QuantitativeDefinition): QuantitativeResult {
-		try {
-			const result = this.#quantitative.reason(subject, definition)
-			if (result.reasoning === 'quantitative') return result
-			return quantitativeFailure(`Expected quantitative result, got ${result.reasoning}`)
-		} catch (error) {
-			return quantitativeFailure(error instanceof Error ? error.message : String(error))
+	// Narrows the engine's tagged ReasonResult union down to a QuantitativeResult
+	// for a definition the engine is guaranteed (by dispatch-by-reasoning) to
+	// resolve as such — a defensive, total fallback rather than an assertion.
+	#quantitative(subject: Subject, definition: QuantitativeDefinition): QuantitativeResult {
+		const result = this.#engine.reason(subject, definition)
+		if (result.reasoning === 'quantitative') return result
+		const failure = buildErrorResult(
+			definition,
+			`Expected quantitative result, got ${result.reasoning}`,
+		)
+		if (failure.reasoning === 'quantitative') return failure
+		return {
+			reasoning: 'quantitative',
+			value: 0,
+			groups: [],
+			count: 0,
+			success: false,
+			trace: [],
+			errors: failure.errors,
 		}
 	}
 }

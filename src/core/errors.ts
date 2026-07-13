@@ -1,6 +1,15 @@
 import type { RaterErrorCode } from './types.js'
 
-/** Coded rater programmer error. */
+/**
+ * A coded programmer error thrown by the rating layer.
+ *
+ * @remarks
+ * `DUPLICATE` — a program id collision on `ProgramManager.add`. `MISSING` — an
+ * unknown authored line reference at compile time, or an unknown program lookup.
+ * `DEFINITION` — a program definition failed `isProgramDefinition`. `MISMATCH` —
+ * a rated subject is not a record, or uses a reserved working-subject key.
+ * `DESTROYED` — use of a destroyed entity.
+ */
 export class RaterError extends Error {
 	readonly code: RaterErrorCode
 	readonly context?: Readonly<Record<string, unknown>>
@@ -13,7 +22,7 @@ export class RaterError extends Error {
 	}
 }
 
-/** Narrow a caught value to {@link RaterError}. */
+/** Narrow a caught value to a {@link RaterError}. */
 export function isRaterError(value: unknown): value is RaterError {
 	return value instanceof RaterError
 }
