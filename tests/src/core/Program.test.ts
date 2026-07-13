@@ -305,6 +305,43 @@ describe('Program — safety and determinism', () => {
 		engine.destroy()
 	})
 
+	it('throws DEFINITION at construction for a quantitative pass id shadowing a reserved key', () => {
+		const engine = createEngine()
+		const definition = programDefinition('reserved', 'Reserved', [], {
+			passes: [passDefinition(quantitativeDefinition('aggregate', 'Aggregate', []))],
+		})
+		const error = captureError(() => createProgram(definition, engine))
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DEFINITION')
+		expect(error.context).toEqual({ program: 'reserved', keys: ['aggregate'] })
+		engine.destroy()
+	})
+
+	it('throws DEFINITION at construction for a conclusion asserting a reserved outcome.total field', () => {
+		const engine = createEngine()
+		const gate = logicalDefinition('gate', 'Gate', [
+			rule('bad', [atom('age', 'above', 18)], atom(['outcome', 'total'], 'equals', true)),
+		])
+		const definition = programDefinition(
+			'reserved-conclusion',
+			'Reserved conclusion',
+			[lineDefinition('line', 'Line', createRatingDefinition())],
+			{ passes: [passDefinition(gate, 'line')] },
+		)
+		const error = captureError(() => createProgram(definition, engine))
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DEFINITION')
+		expect(error.context).toEqual({ program: 'reserved-conclusion', keys: ['bad'] })
+		engine.destroy()
+	})
+
+	it('compiles a benign program with no reserved-key collisions', () => {
+		const engine = createEngine()
+		const program = createProgram(createPropertyProgramDefinition(), engine)
+		expect(program.id).toBe('property')
+		engine.destroy()
+	})
+
 	it('is deterministic and leaves the caller subject unmutated', () => {
 		const engine = createEngine()
 		const program = createProgram(createPropertyProgramDefinition(), engine, { total: sumAmounts })

@@ -2,6 +2,7 @@ import { logicalDefinition } from '@orkestrel/reason'
 import {
 	aggregateDefinition,
 	createProgram,
+	createProgramManager,
 	createRater,
 	isRaterError,
 	lineDefinition,
@@ -66,6 +67,23 @@ describe('factories — createProgram', () => {
 		if (!isRaterError(error)) throw new Error('expected a RaterError')
 		expect(error.code).toBe('DEFINITION')
 		expect(error.context).toEqual({ program: undefined })
+		engine.destroy()
+	})
+})
+
+describe('factories — createProgramManager', () => {
+	it('builds a manager over the injected engine that compiles, adds, and destroys programs', () => {
+		const engine = createEngine()
+		const rate = createRatingDefinition()
+		const manager = createProgramManager(engine)
+		expect(manager.size).toBe(0)
+		const program = manager.add(
+			programDefinition('p1', 'P1', [lineDefinition('line', 'Line', rate)]),
+		)
+		expect(manager.has('p1')).toBe(true)
+		expect(manager.size).toBe(1)
+		expect(program.rate(createRatingSubject()).lines[0]?.amount).toBe(110)
+		manager.destroy()
 		engine.destroy()
 	})
 })

@@ -1,5 +1,13 @@
 import type { Expression } from '@orkestrel/reason'
-import { atom, check, compound, createEvaluator, logicalDefinition, rule } from '@orkestrel/reason'
+import {
+	atom,
+	check,
+	compound,
+	createEvaluator,
+	logicalDefinition,
+	quantitativeDefinition,
+	rule,
+} from '@orkestrel/reason'
 import {
 	aggregateGroups,
 	aggregateProjection,
@@ -16,11 +24,13 @@ import {
 	describeComparison,
 	describeExpression,
 	describePremise,
+	describeValue,
 	emptySums,
 	emptyTallies,
 	filterLineDeterminations,
 	filterProgramDeterminations,
 	findMissingLineReferences,
+	findReservedCollisions,
 	findRule,
 	hasReservedKey,
 	interpolateMessage,
@@ -29,6 +39,7 @@ import {
 	logicalPremises,
 	noticesToDeterminations,
 	outcomeProjection,
+	passDefinition,
 	premiseCheck,
 	programDefinition,
 	programResult,
@@ -98,6 +109,26 @@ describe('helpers — describeComparison', () => {
 	})
 })
 
+describe('helpers — describeValue', () => {
+	it('joins array elements with comma-space', () => {
+		expect(describeValue(['a', 'b', 'c'])).toBe('a, b, c')
+		expect(describeValue([18, 25, 40])).toBe('18, 25, 40')
+		expect(describeValue([])).toBe('')
+	})
+
+	it('renders a Bounds-shaped record as its present sides joined with "and"', () => {
+		expect(describeValue({ minimum: 18, maximum: 65 })).toBe('18 and 65')
+		expect(describeValue({ minimum: 18 })).toBe('18')
+		expect(describeValue({ maximum: 65 })).toBe('65')
+	})
+
+	it('renders a finite number and everything else with plain String coercion', () => {
+		expect(describeValue(42)).toBe('42')
+		expect(describeValue(true)).toBe('true')
+		expect(describeValue('east')).toBe('east')
+	})
+})
+
 describe('helpers — describePremise', () => {
 	it('renders a field/comparison premise with a label override', () => {
 		const premise = {
@@ -114,6 +145,25 @@ describe('helpers — describePremise', () => {
 	it('falls back to description for a fieldless premise and reports unknown when met is absent', () => {
 		expect(describePremise({ description: 'Custom check' })).toBe('Custom check ? unknown')
 		expect(describePremise({})).toBe('Premise ? unknown')
+	})
+
+	it('renders a Bounds-shaped and an array expected value display-neutrally', () => {
+		const bounds = {
+			field: 'age',
+			comparison: 'between' as const,
+			expected: { minimum: 18, maximum: 65 },
+			actual: 25,
+			met: true,
+		}
+		expect(describePremise(bounds)).toBe('age is between 18 and 65 ? met')
+		const membership = {
+			field: 'region',
+			comparison: 'any' as const,
+			expected: ['a', 'b', 'c'],
+			actual: 'a',
+			met: true,
+		}
+		expect(describePremise(membership)).toBe('region is any of a, b, c ? met')
 	})
 })
 
@@ -545,6 +595,60 @@ describe('helpers — findMissingLineReferences', () => {
 			},
 		)
 		expect(findMissingLineReferences(definition)).toEqual([])
+	})
+})
+
+describe('helpers — findReservedCollisions', () => {
+	it('flags a quantitative pass whose id shadows a reserved key', () => {
+		const definition = programDefinition('p', 'P', [], {
+			passes: [passDefinition(quantitativeDefinition('aggregate', 'Aggregate', []))],
+		})
+		expect(findReservedCollisions(definition)).toEqual(['aggregate'])
+	})
+
+	it('flags a logical pass rule whose conclusion asserts a nested reserved field', () => {
+		const gate = logicalDefinition('gate', 'Gate', [
+			rule('bad', [atom('age', 'above', 18)], atom(['outcome', 'total'], 'equals', true)),
+		])
+		const definition = programDefinition(
+			'p',
+			'P',
+			[lineDefinition('line', 'Line', createRatingDefinition())],
+			{ passes: [passDefinition(gate, 'line')] },
+		)
+		expect(findReservedCollisions(definition)).toEqual(['bad'])
+	})
+
+	it('flags an authority rule whose conclusion asserts a reserved field', () => {
+		const authority = logicalDefinition('authority', 'Authority', [
+			rule('bad', [atom('age', 'above', 18)], atom('aggregate', 'equals', true)),
+		])
+		const definition = programDefinition(
+			'p',
+			'P',
+			[lineDefinition('line', 'Line', createRatingDefinition())],
+			{ authority },
+		)
+		expect(findReservedCollisions(definition)).toEqual(['bad'])
+	})
+
+	it('returns an empty list for a benign program', () => {
+		const definition = programDefinition(
+			'p',
+			'P',
+			[lineDefinition('line', 'Line', createRatingDefinition())],
+			{
+				passes: [
+					passDefinition(
+						logicalDefinition('gate', 'Gate', [
+							rule('flag', [atom('age', 'above', 18)], atom('flagged', 'equals', true)),
+						]),
+						'line',
+					),
+				],
+			},
+		)
+		expect(findReservedCollisions(definition)).toEqual([])
 	})
 })
 

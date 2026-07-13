@@ -36,7 +36,7 @@ import type {
 	WorksheetGroup,
 } from './types.js'
 import { isFiniteNumber, isRecord, resolveField } from '@orkestrel/contract'
-import { extractAtoms, formatField } from '@orkestrel/reason'
+import { extractAtoms, formatField, isBounds } from '@orkestrel/reason'
 import { RaterError } from './errors.js'
 import {
 	AGGREGATE_KEY,
@@ -121,6 +121,41 @@ export function describeComparison(comparison: NonNullable<Premise['comparison']
 }
 
 /**
+ * Render a structured or scalar value display-neutrally.
+ *
+ * @remarks
+ * An array renders as its elements, each `String`-coerced, joined with
+ * `', '`. A Bounds-shaped record (a reason `Bounds` — the `between`/`outside`
+ * comparison's expected value shape) renders its present sides joined with
+ * the word `and`; an absent side is omitted. A finite number and everything
+ * else fall back to plain `String()` coercion — a finite number is NOT
+ * grouped here (that grouping is {@link interpolateMessage}'s own,
+ * message-token-only behavior).
+ *
+ * @param value - The value to render
+ * @returns A display-neutral rendering
+ *
+ * @example
+ * ```ts
+ * import { describeValue } from '@orkestrel/rater'
+ *
+ * describeValue([18, 25, 40]) // '18, 25, 40'
+ * describeValue({ minimum: 18, maximum: 65 }) // '18 and 65'
+ * describeValue(42) // '42'
+ * ```
+ */
+export function describeValue(value: unknown): string {
+	if (Array.isArray(value)) return value.map((entry) => String(entry)).join(', ')
+	if (isBounds(value)) {
+		const sides: string[] = []
+		if (value.minimum !== undefined) sides.push(String(value.minimum))
+		if (value.maximum !== undefined) sides.push(String(value.maximum))
+		return sides.join(' and ')
+	}
+	return String(value)
+}
+
+/**
  * Render one {@link Premise} into a display-neutral sentence.
  *
  * @param entry - The premise to render
@@ -142,7 +177,7 @@ export function describePremise(entry: Premise, labels?: Readonly<Record<string,
 	}
 	const field = formatField(entry.field)
 	const label = labels?.[field] ?? entry.label ?? field
-	const expected = entry.expected === undefined ? '' : ` ${String(entry.expected)}`
+	const expected = entry.expected === undefined ? '' : ` ${describeValue(entry.expected)}`
 	return `${label} ${describeComparison(entry.comparison)}${expected} ? ${status}`
 }
 
@@ -750,6 +785,61 @@ export function hasReservedKey(subject: Readonly<Record<string, unknown>>): bool
 }
 
 /**
+ * Locate a {@link ProgramDefinition}'s reserved-key collisions — a quantitative
+ * pass whose id shadows {@link AGGREGATE_KEY} / {@link OUTCOME_KEY}, or a
+ * logical pass's or the authority's fired rule conclusion whose asserted
+ * field's FIRST path segment shadows one.
+ *
+ * @remarks
+ * A quantitative pass writes its value onto the working subject under its own
+ * definition id (`assignField`), silently clobbering the reserved aggregate or
+ * outcome projection when the id collides. A fired rule's conclusion atoms
+ * merge onto the working subject (`mergeSubjects`/`extractConclusions`) keyed
+ * by `formatField(check.field)` — an atom whose field's first segment is a
+ * reserved key is flagged here even when its FULL formatted key is a nested
+ * form (`outcome.total`), since authoring a conclusion under a reserved
+ * top-level segment is never intentional.
+ *
+ * @param definition - The program definition to scan
+ * @returns A fresh, deduped list of offending pass or rule ids
+ *
+ * @example
+ * ```ts
+ * import { quantitativeDefinition } from '@orkestrel/reason'
+ * import { findReservedCollisions, passDefinition, programDefinition } from '@orkestrel/rater'
+ *
+ * findReservedCollisions(
+ * 	programDefinition('p1', 'P1', [], {
+ * 		passes: [passDefinition(quantitativeDefinition('aggregate', 'Aggregate', []))],
+ * 	}),
+ * ) // ['aggregate']
+ * ```
+ */
+export function findReservedCollisions(definition: ProgramDefinition): readonly string[] {
+	const offending = new Set<string>()
+	const logicals: LogicalDefinition[] = []
+	for (const pass of definition.passes ?? []) {
+		if (pass.definition.reasoning === 'quantitative') {
+			if (pass.definition.id === AGGREGATE_KEY || pass.definition.id === OUTCOME_KEY) {
+				offending.add(pass.definition.id)
+			}
+		} else if (pass.definition.reasoning === 'logical') {
+			logicals.push(pass.definition)
+		}
+	}
+	if (definition.authority !== undefined) logicals.push(definition.authority)
+	for (const logical of logicals) {
+		for (const rule of logical.rules) {
+			for (const atom of extractAtoms(rule.conclusion)) {
+				const head = Array.isArray(atom.check.field) ? atom.check.field[0] : atom.check.field
+				if (head === AGGREGATE_KEY || head === OUTCOME_KEY) offending.add(rule.id)
+			}
+		}
+	}
+	return [...offending]
+}
+
+/**
  * Assert a value is a valid rater {@link Subject}, narrowing it in place.
  *
  * @param subject - The candidate subject to validate
@@ -787,6 +877,12 @@ export function aggregateSums(
 /**
  * Partition a batch of subjects by a field, summing aggregate fields per
  * partition.
+ *
+ * @remarks
+ * The partition key is the resolved `by` field, coerced with `String` —
+ * `undefined` collapses to the empty string, so a subject missing the field
+ * and a subject whose field is literally `''` land in the SAME partition,
+ * and a numeric `1` collides with the string `'1'`.
  *
  * @param subjects - The batch of subjects
  * @param fields - The fields to sum within each partition
@@ -843,6 +939,12 @@ export function aggregateFields(programs: readonly ProgramInterface[]): readonly
 
 /**
  * Locate the {@link AggregateGroup} a subject belongs to.
+ *
+ * @remarks
+ * The lookup key is the resolved `by` field, coerced with `String` —
+ * `undefined` collapses to the empty string, matching {@link aggregateGroups}'
+ * partition-key coercion (a missing key and an empty-string key collide, and
+ * a numeric `1` collides with the string `'1'`).
  *
  * @param subject - The subject to key
  * @param groups - The candidate groups to search

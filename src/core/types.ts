@@ -192,6 +192,12 @@ export interface ProgramResult {
 	readonly name: string
 	readonly eligibility: Eligibility
 	readonly status: Status
+	/**
+	 * @remarks
+	 * Present ONLY when the program HAS an `authority`, the authority result is
+	 * `logical`, NO `limit` determinations fired, and the authority result
+	 * carries no errors — absent otherwise.
+	 */
 	readonly decision?: Decision
 	readonly lines: readonly LineResult[]
 	readonly determinations: readonly Determination[]

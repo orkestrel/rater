@@ -31,6 +31,7 @@ import {
 	filterLineDeterminations,
 	filterProgramDeterminations,
 	findMissingLineReferences,
+	findReservedCollisions,
 	findRule,
 	noticesToDeterminations,
 	outcomeProjection,
@@ -62,6 +63,13 @@ export class Program implements ProgramInterface {
 		if (missing.length > 0) {
 			throw new RaterError('MISSING', `Unknown line reference: ${missing.join(', ')}`, {
 				program: definition.id,
+			})
+		}
+		const collisions = findReservedCollisions(definition)
+		if (collisions.length > 0) {
+			throw new RaterError('DEFINITION', `Reserved key collision: ${collisions.join(', ')}`, {
+				program: definition.id,
+				keys: collisions,
 			})
 		}
 		this.#definition = definition
@@ -197,7 +205,8 @@ export class Program implements ProgramInterface {
 			definition,
 			`Expected quantitative result, got ${result.reasoning}`,
 		)
-		if (failure.reasoning === 'quantitative') return failure
+		const errors = [...result.errors, ...failure.errors]
+		if (failure.reasoning === 'quantitative') return { ...failure, errors }
 		return {
 			reasoning: 'quantitative',
 			value: 0,
@@ -205,7 +214,7 @@ export class Program implements ProgramInterface {
 			count: 0,
 			success: false,
 			trace: [],
-			errors: failure.errors,
+			errors,
 		}
 	}
 }

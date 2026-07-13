@@ -8,6 +8,8 @@ import type {
 	PassDefinition,
 	ProgramDefinition,
 	ProgramInterface,
+	ProgramManagerInterface,
+	ProgramManagerOptions,
 	ProgramOptions,
 	RaterInterface,
 	RaterOptions,
@@ -15,6 +17,7 @@ import type {
 } from './types.js'
 import { isRecord } from '@orkestrel/contract'
 import { Program } from './programs/Program.js'
+import { ProgramManager } from './programs/ProgramManager.js'
 import { Rater } from './Rater.js'
 import { RaterError } from './errors.js'
 import { isProgramDefinition } from './validators.js'
@@ -65,6 +68,32 @@ export function createProgram(
 		throw new RaterError('DEFINITION', 'Program definition failed validation', { program: id })
 	}
 	return new Program(definition, reason, options)
+}
+
+/**
+ * Create an ordered manager over compiled programs (AGENTS §9), built over an
+ * injected, shared reasoning engine.
+ *
+ * @param reason - The shared reasoning engine, injected into every compiled program
+ * @param options - Optional total handler, labels, validation policy, and emitter hooks
+ * @returns A {@link ProgramManagerInterface}
+ *
+ * @example
+ * ```ts
+ * import { createLogicalReasoner, createQuantitativeReasoner, createReason } from '@orkestrel/reason'
+ * import { createProgramManager, programDefinition } from '@orkestrel/rater'
+ *
+ * const reason = createReason({ reasoners: [createQuantitativeReasoner(), createLogicalReasoner()], bail: false })
+ * const manager = createProgramManager(reason)
+ * manager.add(programDefinition('p1', 'Program', []))
+ * manager.destroy()
+ * ```
+ */
+export function createProgramManager(
+	reason: ReasonInterface,
+	options?: ProgramManagerOptions,
+): ProgramManagerInterface {
+	return new ProgramManager(reason, options)
 }
 
 /**

@@ -11,6 +11,7 @@ import type {
 	AggregateResult,
 	Determination,
 	ProgramInterface,
+	ProgramManagerInterface,
 	RaterEventMap,
 	RaterInterface,
 	RaterOptions,
@@ -20,6 +21,7 @@ import type {
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
 import {
+	buildErrorResult,
 	createEvaluator,
 	createLogicalReasoner,
 	createQuantitativeReasoner,
@@ -81,7 +83,7 @@ export class Rater implements RaterInterface {
 		return this.#emitter
 	}
 
-	get programs(): ProgramManager {
+	get programs(): ProgramManagerInterface {
 		return this.#manager
 	}
 
@@ -273,9 +275,15 @@ export class Rater implements RaterInterface {
 		return output
 	}
 
+	// Narrows the engine's tagged ReasonResult union down to a LogicalResult for
+	// a definition the engine is guaranteed (by dispatch-by-reasoning) to resolve
+	// as such — a defensive, total fallback rather than an assertion.
 	#reasonLogical(subject: Subject, definition: LogicalDefinition): LogicalResult {
 		const result = this.#engine.reason(subject, definition)
 		if (result.reasoning === 'logical') return result
+		const failure = buildErrorResult(definition, `Expected logical result, got ${result.reasoning}`)
+		const errors = [...result.errors, ...failure.errors]
+		if (failure.reasoning === 'logical') return { ...failure, errors }
 		return {
 			reasoning: 'logical',
 			conclusion: false,
@@ -283,7 +291,7 @@ export class Rater implements RaterInterface {
 			count: 0,
 			success: false,
 			trace: [],
-			errors: result.errors,
+			errors,
 		}
 	}
 
