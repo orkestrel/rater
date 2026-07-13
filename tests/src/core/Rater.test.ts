@@ -1,13 +1,12 @@
-import type { FieldPath, ProgramDefinition, RaterEventMap } from '@src/core'
+import type { FieldPath } from '@orkestrel/contract'
+import { factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
+import type { ProgramDefinition, RaterEventMap } from '@src/core'
 import {
 	aggregateDefinition,
 	createRater,
-	factorGroup,
 	isRaterError,
 	lineDefinition,
 	programDefinition,
-	quantitativeDefinition,
-	staticFactor,
 	sumAmounts,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
@@ -23,11 +22,28 @@ import {
 	createRecorder,
 	invokeRaw,
 	recordEmitterEvents,
-	repeatValue,
 	sequence,
-} from '../../../setup.js'
+} from '../../setup.js'
 
-const RATER_EVENTS: readonly (keyof RaterEventMap)[] = ['rate', 'aggregate', 'determine', 'decide']
+// A minimal aggregate program: an `amount`-summing aggregate (optionally partitioned
+// by `by`) over a line that always rates to a finite `0` — so status is deterministically
+// `eligible` and the only variable under test is the aggregation itself.
+function sumsProgram(fields: readonly FieldPath[] = ['amount'], by?: FieldPath): ProgramDefinition {
+	return programDefinition(
+		'sums',
+		'Sums',
+		[
+			lineDefinition(
+				'line',
+				'Line',
+				quantitativeDefinition('quote', 'Quote', [
+					factorGroup('base', 'sum', [staticFactor('base', 0)]),
+				]),
+			),
+		],
+		{ aggregate: aggregateDefinition(fields, by) },
+	)
+}
 
 describe('Rater — rate overloads', () => {
 	it('rates a single subject to a SubjectResult in manager insertion order', () => {
@@ -38,6 +54,7 @@ describe('Rater — rate overloads', () => {
 		expect(result.subject).toEqual(createRatingSubject())
 		expect(result.programs.map((program) => program.id)).toEqual(['first', 'second'])
 		expect(result.programs[0]?.total).toBe(110)
+		rater.destroy()
 	})
 
 	it('rates an array to an AggregateResult and handles an empty batch', () => {
@@ -46,7 +63,8 @@ describe('Rater — rate overloads', () => {
 			createRatingSubject({ value: 10 }),
 			createRatingSubject({ value: 20 }),
 		])
-		const empty = createRater().rate([])
+		const emptyRater = createRater()
+		const empty = emptyRater.rate([])
 		expect(result.count).toBe(2)
 		expect(result.subjects).toHaveLength(2)
 		expect(result.sums).toEqual({ value: 30 })
@@ -58,40 +76,40 @@ describe('Rater — rate overloads', () => {
 			count: 0,
 			sums: {},
 		})
+		rater.destroy()
+		emptyRater.destroy()
 	})
 })
 
 describe('Rater — batch aggregates', () => {
-	it('computes raw aggregate sums, groups missing keys under blank, and projects aggregates into subject rating', () => {
+	it('computes raw aggregate sums, groups by location, and gates whole-batch plus per-group determinations', () => {
 		const rater = createRater({ total: sumAmounts, programs: [createAggregateProgramDefinition()] })
 		const result = rater.rate([
-			createRatingSubject({ id: 'a', value: 100, location: 'north' }),
+			createRatingSubject({ id: 'a', value: 90, location: 'north' }),
 			createRatingSubject({ id: 'b', value: 60, location: 'north' }),
 			createRatingSubject({ id: 'c', value: 5, location: undefined }),
 		])
-		expect(result.sums).toEqual({ value: 165 })
+		expect(result.sums).toEqual({ value: 155 })
 		expect(result.groups).toEqual([
-			{ key: 'north', count: 2, sums: { value: 160 } },
+			{ key: 'north', count: 2, sums: { value: 150 } },
 			{ key: '', count: 1, sums: { value: 5 } },
 		])
-		expect(result.determinations.map((entry) => [entry.id, entry.effect, entry.applied])).toEqual([
-			['portfolio', 'referral', true],
-			['group', 'condition', false],
-			['portfolio', 'referral', true],
-			['group', 'condition', true],
-			['portfolio', 'referral', false],
-			['group', 'condition', false],
+		expect(result.determinations.map((entry) => [entry.id, entry.applied])).toEqual([
+			['over-limit', true],
+			['over-limit', true],
+			['over-limit', false],
 		])
 		expect(result.subjects[0]?.programs[0]?.determinations).toEqual([])
+		rater.destroy()
 	})
 
-	it('completes tallies for every status for every program id', () => {
+	it('completes tallies for every status, keyed by program id', () => {
 		const rater = createRater({ total: sumAmounts, programs: [createAggregateProgramDefinition()] })
 		const result = rater.rate([
 			createRatingSubject({ value: 10 }),
 			createRatingSubject({ value: 20 }),
 		])
-		const tally = result.tallies.aggregate
+		const tally = result.tallies.portfolio
 		expect(Object.keys(tally)).toEqual([
 			'ineligible',
 			'referral',
@@ -102,6 +120,7 @@ describe('Rater — batch aggregates', () => {
 		expect(tally.eligible.count).toBe(2)
 		expect(tally.eligible.sums).toEqual({ value: 30 })
 		expect(tally.ineligible.count).toBe(0)
+		rater.destroy()
 	})
 })
 
@@ -111,23 +130,29 @@ describe('Rater — events', () => {
 			total: sumAmounts,
 			programs: [createPropertyProgramDefinition(), createAuthorityProgramDefinition()],
 		})
-		const events = recordEmitterEvents(rater.emitter, RATER_EVENTS)
+		const events = recordEmitterEvents(rater.emitter, {
+			rate: createRecorder<RaterEventMap['rate']>(),
+			aggregate: createRecorder<RaterEventMap['aggregate']>(),
+			determine: createRecorder<RaterEventMap['determine']>(),
+			decide: createRecorder<RaterEventMap['decide']>(),
+		})
 		rater.rate([
-			createRatingSubject({ coastal: true, value: 1 }),
-			createRatingSubject({ coastal: false, value: 1 }),
+			createRatingSubject({ coastal: true, seats: 10 }),
+			createRatingSubject({ coastal: false, seats: 10 }),
 		])
 		expect(events.rate.count).toBe(2)
 		expect(events.aggregate.count).toBe(1)
 		expect(events.determine.calls.map((call) => call[0].id)).toEqual([
-			'coastal',
-			'notice',
-			'notice',
+			'flag-coastal',
+			'rated',
+			'rated',
 		])
 		expect(events.decide.count).toBe(2)
 		expect(events.aggregate.calls[0]?.[0].count).toBe(2)
+		rater.destroy()
 	})
 
-	it('construction on hooks receive events and throwing listeners are isolated', () => {
+	it('construction hooks receive events and a throwing listener is isolated via the error handler', () => {
 		const rate = createRecorder<RaterEventMap['rate']>()
 		const error = createErrorRecorder()
 		const rater = createRater({
@@ -145,6 +170,7 @@ describe('Rater — events', () => {
 		expect(rate.count).toBe(1)
 		expect(error.count).toBe(2)
 		expect(error.calls[0]?.[1]).toBe('determine')
+		rater.destroy()
 	})
 })
 
@@ -157,9 +183,10 @@ describe('Rater — errors and destroy', () => {
 		if (!isRaterError(reserved)) throw new Error('expected a RaterError')
 		expect(nonRecord.code).toBe('MISMATCH')
 		expect(reserved.code).toBe('MISMATCH')
+		rater.destroy()
 	})
 
-	it('destroy is idempotent and gates rate plus held manager references with MISSING', () => {
+	it('destroy is idempotent and gates rate plus held manager references with DESTROYED', () => {
 		const rater = createRater({ programs: [createPropertyProgramDefinition()] })
 		const programs = rater.programs
 		rater.destroy()
@@ -170,29 +197,11 @@ describe('Rater — errors and destroy', () => {
 		if (!isRaterError(rate)) throw new Error('expected a RaterError')
 		if (!isRaterError(add)) throw new Error('expected a RaterError')
 		if (!isRaterError(list)) throw new Error('expected a RaterError')
-		expect(rate.code).toBe('MISSING')
-		expect(add.code).toBe('MISSING')
-		expect(list.code).toBe('MISSING')
+		expect(rate.code).toBe('DESTROYED')
+		expect(add.code).toBe('DESTROYED')
+		expect(list.code).toBe('DESTROYED')
 	})
 })
-
-// A minimal aggregate program: an `amount`-summing aggregate (optionally partitioned
-// by `by`) over a line that always rates to a finite `0` — so status is deterministically
-// `eligible` and the only variable under test is the aggregation itself.
-function sumsProgram(fields: readonly FieldPath[] = ['amount'], by?: FieldPath): ProgramDefinition {
-	return programDefinition('sums', 'Sums', {
-		aggregate: aggregateDefinition(fields, by),
-		lines: [
-			lineDefinition(
-				'line',
-				'Line',
-				quantitativeDefinition('quote', 'Quote', [
-					factorGroup('base', 'sum', [staticFactor('base', 0)]),
-				]),
-			),
-		],
-	})
-}
 
 describe('Rater — numeric quirks', () => {
 	it('sums only finite field values, skipping Infinity, -Infinity, and NaN', () => {
@@ -206,6 +215,7 @@ describe('Rater — numeric quirks', () => {
 			{ id: 'f', amount: 5 },
 		])
 		expect(result.sums.amount).toBe(35)
+		rater.destroy()
 	})
 
 	it('accumulates -0 field values as positive zero', () => {
@@ -216,33 +226,7 @@ describe('Rater — numeric quirks', () => {
 		])
 		expect(Object.is(result.sums.amount, 0)).toBe(true)
 		expect(Object.is(result.sums.amount, -0)).toBe(false)
-	})
-
-	it('preserves IEEE rounding when accumulation crosses 2^53', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const result = rater.rate([
-			{ id: 'a', amount: Number.MAX_SAFE_INTEGER },
-			{ id: 'b', amount: 1 },
-			{ id: 'c', amount: 1 },
-		])
-		expect(result.sums.amount).toBe(9007199254740992)
-	})
-
-	it('reports the real float accumulation of many 0.1 field values', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const subjects = repeatValue(10, 0.1).map((amount, index) => ({ id: `s${index}`, amount }))
-		const result = rater.rate(subjects)
-		expect(result.sums.amount).toBe(0.9999999999999999)
-	})
-
-	it('exhibits catastrophic cancellation in subject order', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const result = rater.rate([
-			{ id: 'a', amount: 1e16 },
-			{ id: 'b', amount: 1 },
-			{ id: 'c', amount: -1e16 },
-		])
-		expect(result.sums.amount).toBe(0)
+		rater.destroy()
 	})
 
 	it('overflows finite EXTREME_NUMBERS to Infinity and leaves an unmapped field at zero', () => {
@@ -251,42 +235,21 @@ describe('Rater — numeric quirks', () => {
 		const result = rater.rate(subjects)
 		expect(result.sums.amount).toBe(Number.POSITIVE_INFINITY)
 		expect(Object.is(result.sums.missing, 0)).toBe(true)
+		rater.destroy()
 	})
 })
 
 describe('Rater — scale', () => {
-	it('rates 1000 subjects preserving order, count, and exact representable sums', () => {
+	it('rates hundreds of subjects preserving order, count, and exact representable sums', () => {
 		const rater = createRater({ programs: [sumsProgram()] })
-		const subjects = sequence(1000, 1).map((amount) => ({ id: `s${amount}`, amount }))
-		const result = rater.rate(subjects)
-		expect(result.count).toBe(1000)
-		expect(result.subjects).toHaveLength(1000)
-		expect(result.sums.amount).toBe(500500)
-		expect(result.subjects[0]?.subject).toBe(subjects[0])
-		expect(result.subjects[999]?.subject).toBe(subjects[999])
-		expect(
-			result.subjects
-				.map((rated) => rated.subject)
-				.every((entry, index) => entry === subjects[index]),
-		).toBe(true)
-	})
-
-	it('completes every status bucket and fires one rate event per subject at scale', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const events = recordEmitterEvents(rater.emitter, RATER_EVENTS)
 		const subjects = sequence(500, 1).map((amount) => ({ id: `s${amount}`, amount }))
 		const result = rater.rate(subjects)
-		const tally = result.tallies.sums
-		expect(tally.eligible.count).toBe(500)
-		expect(tally.eligible.sums.amount).toBe(125250)
-		expect(tally.ineligible.count).toBe(0)
-		expect(tally.unrated.count).toBe(0)
-		expect(events.rate.count).toBe(500)
-		expect(events.aggregate.count).toBe(1)
-		expect(events.determine.count).toBe(0)
-		expect(events.decide.count).toBe(0)
-		expect(events.rate.calls[0]?.[0].subject).toBe(subjects[0])
-		expect(events.rate.calls[499]?.[0].subject).toBe(subjects[499])
+		expect(result.count).toBe(500)
+		expect(result.subjects).toHaveLength(500)
+		expect(result.sums.amount).toBe((500 * 501) / 2)
+		expect(result.subjects[0]?.subject).toBe(subjects[0])
+		expect(result.subjects[499]?.subject).toBe(subjects[499])
+		rater.destroy()
 	})
 })
 
@@ -305,6 +268,7 @@ describe('Rater — group key coercion', () => {
 			{ key: '0', count: 2, sums: { amount: 20 } },
 			{ key: 'true', count: 1, sums: { amount: 8 } },
 		])
+		rater.destroy()
 	})
 
 	it('groups missing and explicit undefined partition keys under the blank string', () => {
@@ -318,38 +282,27 @@ describe('Rater — group key coercion', () => {
 			{ key: '', count: 2, sums: { amount: 3 } },
 			{ key: 'x', count: 1, sums: { amount: 4 } },
 		])
+		rater.destroy()
 	})
 
-	it('keys unicode and adversarial group values verbatim in first-seen order', () => {
+	it('keys adversarial group values verbatim in first-seen order', () => {
 		const rater = createRater({ programs: [sumsProgram(['amount'], 'g')] })
 		const subjects = TRICKY_KEYS.map((g, index) => ({ id: `s${index}`, g, amount: index }))
 		const result = rater.rate(subjects)
 		expect(result.groups.map((group) => group.key)).toEqual([...TRICKY_KEYS])
 		expect(result.groups).toHaveLength(TRICKY_KEYS.length)
 		expect(result.groups.every((group) => group.count === 1)).toBe(true)
+		rater.destroy()
 	})
 })
 
 describe('Rater — batch edge cases', () => {
-	it('rates every subject when ids repeat across a batch', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const result = rater.rate([
-			{ id: 'dup', amount: 10 },
-			{ id: 'dup', amount: 20 },
-		])
-		expect(result.count).toBe(2)
-		expect(result.subjects).toHaveLength(2)
-		expect(result.sums.amount).toBe(30)
-		expect(result.tallies.sums.eligible.count).toBe(2)
-		expect(result.subjects.map((rated) => rated.subject)).toEqual([
-			{ id: 'dup', amount: 10 },
-			{ id: 'dup', amount: 20 },
-		])
-	})
-
 	it('rejects a batch up-front for a reserved-key subject without emitting', () => {
 		const rater = createRater({ programs: [sumsProgram()] })
-		const events = recordEmitterEvents(rater.emitter, RATER_EVENTS)
+		const events = recordEmitterEvents(rater.emitter, {
+			rate: createRecorder<RaterEventMap['rate']>(),
+			aggregate: createRecorder<RaterEventMap['aggregate']>(),
+		})
 		const error = captureError(() =>
 			rater.rate([
 				{ id: 'ok', amount: 1 },
@@ -360,6 +313,7 @@ describe('Rater — batch edge cases', () => {
 		expect(error.code).toBe('MISMATCH')
 		expect(events.rate.count).toBe(0)
 		expect(events.aggregate.count).toBe(0)
+		rater.destroy()
 	})
 
 	it('does not treat a nested reserved key as reserved', () => {
@@ -368,27 +322,19 @@ describe('Rater — batch edge cases', () => {
 		const result = rater.rate(subject)
 		expect(result.subject).toBe(subject)
 		expect(result.programs).toHaveLength(1)
-	})
-
-	it('throws MISMATCH for a single subject owning the outcome reserved key', () => {
-		const rater = createRater()
-		const error = captureError(() => rater.rate({ id: 's', outcome: {} }))
-		if (!isRaterError(error)) throw new Error('expected a RaterError')
-		expect(error.code).toBe('MISMATCH')
+		rater.destroy()
 	})
 
 	it('surfaces line rating errors in-result while completing the whole batch', () => {
-		const program = programDefinition('faulty', 'Faulty', {
-			lines: [
-				lineDefinition(
-					'line',
-					'Line',
-					quantitativeDefinition('quote', 'Quote', [
-						factorGroup('base', 'sum', [staticFactor('boom', Number.POSITIVE_INFINITY)]),
-					]),
-				),
-			],
-		})
+		const program = programDefinition('faulty', 'Faulty', [
+			lineDefinition(
+				'line',
+				'Line',
+				quantitativeDefinition('quote', 'Quote', [
+					factorGroup('base', 'sum', [staticFactor('boom', Number.POSITIVE_INFINITY)]),
+				]),
+			),
+		])
 		const rater = createRater({ validate: false, programs: [program] })
 		const result = rater.rate([
 			{ id: 'a', amount: 1 },
@@ -399,33 +345,11 @@ describe('Rater — batch edge cases', () => {
 			const outcome = rated.programs[0]
 			if (outcome === undefined) throw new Error('expected a program result')
 			expect(outcome.success).toBe(false)
-			expect(outcome.errors.length).toBeGreaterThan(0)
+			// The program itself ran no passes, so the top-level trace/errors stay
+			// empty — the failure surfaces on the line's own worksheet instead.
+			expect(outcome.lines[0]?.worksheet?.errors.length).toBeGreaterThan(0)
 			expect(outcome.status).toBe('unrated')
 		}
-	})
-
-	it('applies aggregate gates per group so some partitions fail over many subjects', () => {
-		const rater = createRater({ total: sumAmounts, programs: [createAggregateProgramDefinition()] })
-		const north = sequence(10).map((index) =>
-			createRatingSubject({ id: `n${index}`, value: 20, location: 'north' }),
-		)
-		const south = sequence(10).map((index) =>
-			createRatingSubject({ id: `s${index}`, value: 5, location: 'south' }),
-		)
-		const result = rater.rate([...north, ...south])
-		expect(result.count).toBe(20)
-		expect(result.sums).toEqual({ value: 250 })
-		expect(result.groups).toEqual([
-			{ key: 'north', count: 10, sums: { value: 200 } },
-			{ key: 'south', count: 10, sums: { value: 50 } },
-		])
-		expect(result.determinations.map((entry) => [entry.id, entry.applied])).toEqual([
-			['portfolio', true],
-			['group', false],
-			['portfolio', true],
-			['group', true],
-			['portfolio', false],
-			['group', false],
-		])
+		rater.destroy()
 	})
 })

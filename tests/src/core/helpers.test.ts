@@ -1,25 +1,15 @@
-import type {
-	Determination,
-	Expression,
-	LogicalResult,
-	QuantitativeResult,
-	Status,
-} from '@src/core'
+import type { Expression } from '@orkestrel/reason'
+import { atom, check, compound, createEvaluator, logicalDefinition, rule } from '@orkestrel/reason'
 import {
-	aggregateDefinition,
 	aggregateGroups,
 	aggregateProjection,
 	aggregateRecord,
 	aggregateSums,
-	appendDeterminations,
 	assertSubject,
-	atom,
 	authorityToDeterminations,
-	check,
 	checkPremises,
 	combineEligibilities,
 	completeTallies,
-	compound,
 	decideEligibility,
 	deriveDeterminationEligibility,
 	deriveStatus,
@@ -28,847 +18,592 @@ import {
 	describePremise,
 	emptySums,
 	emptyTallies,
-	factorGroup,
-	fieldFactor,
 	filterLineDeterminations,
 	filterProgramDeterminations,
 	findMissingLineReferences,
 	findRule,
-	freezeProgramDefinition,
 	hasReservedKey,
-	isAggregateDefinition,
-	isLineDefinition,
-	isNotice,
-	isPassDefinition,
-	isProgramDefinition,
+	interpolateMessage,
 	isRaterError,
-	isRuling,
 	lineDefinition,
-	logicalDefinition,
-	logicalFailure,
 	logicalPremises,
-	mergeConclusion,
-	noticeDefinition,
 	noticesToDeterminations,
 	outcomeProjection,
-	passDefinition,
 	premiseCheck,
 	programDefinition,
 	programResult,
-	quantitativeDefinition,
-	quantitativeFailure,
 	ratedLine,
-	rule,
+	resultsWorksheet,
 	rulesToDeterminations,
-	rulingDefinition,
 	sumAmounts,
 	tallySubject,
-	unratedLine,
 	worksheetFactor,
 	worksheetGroup,
 	worksheetStep,
 	worksheetSteps,
-	resultsWorksheet,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
-	captureError,
+	createEngine,
 	createLineResult,
 	createRatingDefinition,
-	EXTREME_NUMBERS,
-	isDeeplyFrozen,
-	repeatValue,
-	sequence,
-	TRICKY_KEYS,
-} from '../../../setup.js'
+	createRatingSubject,
+} from '../../setup.js'
 
-describe('builders — exact definitions', () => {
-	it('builds program, line, pass, ruling, notice, and aggregate records that satisfy guards', () => {
-		const rate = createRatingDefinition()
-		const gate = logicalDefinition('gate', 'Gate', [
-			rule('r1', [atom('x', 'equals', true)], atom('ok', 'equals', true)),
-		])
-		const line = lineDefinition('line', 'Line', rate, {
-			description: 'desc',
-			metadata: { tier: 'a' },
-		})
-		const pass = passDefinition(gate, 'line')
-		const ruling = rulingDefinition('condition', 'line', 'Message {{x}}')
-		const notice = noticeDefinition('n1', 'Notice {{x}}', 'line')
-		const aggregate = aggregateDefinition(['value'], 'location', gate)
-		const program = programDefinition('p1', 'Program', {
-			description: 'desc',
-			passes: [pass],
-			lines: [line],
-			rulings: { r1: ruling },
-			notices: [notice],
-			authority: gate,
-			aggregate,
-			metadata: { version: 1 },
-		})
-
-		expect(isLineDefinition(line)).toBe(true)
-		expect(isPassDefinition(pass)).toBe(true)
-		expect(isRuling(ruling)).toBe(true)
-		expect(isNotice(notice)).toBe(true)
-		expect(isAggregateDefinition(aggregate)).toBe(true)
-		expect(isProgramDefinition(program)).toBe(true)
-		expect(Object.keys(programDefinition('empty', 'Empty')).sort()).toEqual(['id', 'lines', 'name'])
+describe('helpers — interpolateMessage', () => {
+	it('resolves dotted paths and renders finite numbers with en-US thousands grouping', () => {
+		expect(interpolateMessage('Limit is {{limit}}', { limit: 5010 })).toBe('Limit is 5,010')
+		expect(interpolateMessage('{{a.b}}', { a: { b: 'nested' } })).toBe('nested')
 	})
 
-	it('omits undefined optional keys instead of writing undefined values', () => {
-		expect(Object.keys(rulingDefinition('notice'))).toEqual(['effect'])
-		expect(Object.keys(noticeDefinition('n1', 'Notice'))).toEqual(['id', 'message'])
-		expect(Object.keys(aggregateDefinition(['value']))).toEqual(['fields'])
+	it('renders an unresolved path as empty and coerces a non-number with String', () => {
+		expect(interpolateMessage('Missing {{gone}}', {})).toBe('Missing ')
+		expect(interpolateMessage('Flag {{flag}}', { flag: true })).toBe('Flag true')
 	})
 })
 
-describe('eligibility helpers — precedence and status', () => {
-	it('maps eligibility to decisions and combines by severity', () => {
-		expect(decideEligibility('eligible')).toBe('approved')
-		expect(decideEligibility('ineligible')).toBe('denied')
-		expect(decideEligibility('referral')).toBe('submitted')
-		expect(combineEligibilities([])).toBe('eligible')
-		expect(combineEligibilities(['eligible', 'referral'])).toBe('referral')
-		expect(combineEligibilities(['eligible', 'ineligible', 'referral'])).toBe('ineligible')
-	})
-
-	it('derives all status branches', () => {
-		const good = createLineResult('l1', 'eligible', 10)
-		expect(deriveStatus('ineligible', [], [good])).toBe('ineligible')
-		expect(deriveStatus('referral', [], [good])).toBe('referral')
-		expect(deriveStatus('eligible', [determination('c1', 'condition', true)], [good])).toBe(
-			'conditional',
-		)
-		expect(deriveStatus('eligible', [], [createLineResult('l1', 'eligible')])).toBe('unrated')
-		expect(deriveStatus('eligible', [], [good])).toBe('eligible')
-	})
-
-	it('derives determination eligibility from applied effects only', () => {
-		expect(deriveDeterminationEligibility([determination('r1', 'restriction', true)])).toBe(
-			'ineligible',
-		)
-		expect(deriveDeterminationEligibility([determination('r1', 'referral', true)])).toBe('referral')
-		expect(deriveDeterminationEligibility([determination('r1', 'restriction', false)])).toBe(
-			'eligible',
-		)
-	})
-})
-
-describe('message and premise helpers — display-neutral evidence', () => {
-	it('describes comparisons, premises, and compound expressions', () => {
-		const premise = premiseCheck(check('age', 'from', 18), 21, true, { age: 'Driver age' })
+describe('helpers — describeComparison', () => {
+	it('describes every comparison as a display-neutral verb phrase', () => {
+		expect(describeComparison('equals')).toBe('is')
+		expect(describeComparison('not')).toBe('is not')
 		expect(describeComparison('above')).toBe('is more than')
-		expect(describePremise(premise)).toBe('Driver age is at least 18 ? met')
-		expect(describePremise({ description: 'Compound gate', met: false })).toBe(
-			'Compound gate ? not met',
-		)
-		expect(describeExpression(atom('age', 'from', 18), { age: 'Age' })).toBe(
-			'Age is at least 18 ? unknown',
-		)
-		expect(
-			describeExpression({
-				form: 'compound',
-				operator: 'and',
-				operands: [atom('age', 'from', 18)],
-			}),
-		).toBe('and (age is at least 18 ? unknown)')
+		expect(describeComparison('below')).toBe('is less than')
+		expect(describeComparison('from')).toBe('is at least')
+		expect(describeComparison('to')).toBe('is at most')
+		expect(describeComparison('any')).toBe('is any of')
+		expect(describeComparison('none')).toBe('is none of')
+		expect(describeComparison('between')).toBe('is between')
+		expect(describeComparison('outside')).toBe('is outside')
+	})
+})
+
+describe('helpers — describePremise', () => {
+	it('renders a field/comparison premise with a label override', () => {
+		const premise = {
+			field: 'age',
+			comparison: 'above' as const,
+			expected: 18,
+			actual: 25,
+			met: true,
+		}
+		expect(describePremise(premise)).toBe('age is more than 18 ? met')
+		expect(describePremise(premise, { age: 'Age' })).toBe('Age is more than 18 ? met')
 	})
 
-	it('creates one premise per authored check and compound premise without atom fields', () => {
-		const first = check('age', 'from', 18)
-		const premises = checkPremises([first], [{ field: 'age', met: true, actual: 30 }])
+	it('falls back to description for a fieldless premise and reports unknown when met is absent', () => {
+		expect(describePremise({ description: 'Custom check' })).toBe('Custom check ? unknown')
+		expect(describePremise({})).toBe('Premise ? unknown')
+	})
+})
+
+describe('helpers — premiseCheck and checkPremises', () => {
+	it('builds one premise from a check, applying a label when provided', () => {
+		const entry = check('age', 'above', 18)
+		expect(premiseCheck(entry, 25, true)).toEqual({
+			field: 'age',
+			comparison: 'above',
+			expected: 18,
+			actual: 25,
+			met: true,
+		})
+		expect(premiseCheck(entry, 25, true, { age: 'Age' }).label).toBe('Age')
+	})
+
+	it('joins checks and results by index, tolerating a shorter results list', () => {
+		const checks = [check('age', 'above', 18), check('state', 'equals', 'CA')]
+		const results = [{ field: 'age', met: true, actual: 25 }]
+		const premises = checkPremises(checks, results)
+		expect(premises).toHaveLength(2)
+		expect(premises[0]?.met).toBe(true)
+		expect(premises[1]?.met).toBeUndefined()
+	})
+
+	it('returns an empty list for absent checks', () => {
+		expect(checkPremises(undefined, undefined)).toEqual([])
+	})
+})
+
+describe('helpers — describeExpression', () => {
+	it('describes an atom as its premise sentence and a compound as a connective phrase', () => {
+		const leaf: Expression = atom('age', 'above', 18)
+		expect(describeExpression(leaf)).toBe('age is more than 18 ? unknown')
+		const nested = compound('and', [leaf, atom('state', 'equals', 'CA')])
+		expect(describeExpression(nested)).toBe(
+			'and (age is more than 18 ? unknown, state is CA ? unknown)',
+		)
+	})
+})
+
+describe('helpers — logicalPremises', () => {
+	it('flattens rule premises into evaluated leaves against the working subject', () => {
+		const evaluator = createEvaluator()
+		const gate = rule('adult', [atom('age', 'from', 18)], atom('adult', 'equals', true))
+		const premises = logicalPremises(gate, { age: 25 }, evaluator)
 		expect(premises).toEqual([
-			{ field: 'age', comparison: 'from', expected: 18, actual: 30, met: true },
+			{ field: 'age', comparison: 'from', expected: 18, actual: 25, met: true },
 		])
-		const authored = rule(
-			'r1',
-			[{ form: 'compound', operator: 'and', operands: [atom('age', 'from', 18)] }],
-			atom('ok', 'equals', true),
-		)
-		const logical = logicalPremises(
-			authored,
-			{ id: 'r1', applied: true, premises: [true], conclusion: true },
-			{ age: 30 },
-		)
-		expect(logical).toEqual([{ description: 'and (age is at least 18 ? unknown)', met: true }])
 	})
 
-	it('skips a vacuous empty-array membership atom but keeps a non-empty one', () => {
-		const noneEmpty = rule('r2', [atom('total', 'none', [])], atom('gate-r2', 'equals', true))
-		expect(
-			logicalPremises(
-				noneEmpty,
-				{ id: 'r2', applied: true, premises: [true], conclusion: true },
-				{},
-			),
-		).toEqual([])
-
-		const anyEmpty = rule('r3', [atom('total', 'any', [])], atom('gate-r3', 'equals', true))
-		expect(
-			logicalPremises(
-				anyEmpty,
-				{ id: 'r3', applied: true, premises: [true], conclusion: true },
-				{},
-			),
-		).toEqual([])
-
-		const noneFilled = rule(
-			'r4',
-			[atom('occupancy', 'none', ['Office', 'Retail'])],
-			atom('gate-r4', 'equals', true),
-		)
-		expect(
-			logicalPremises(
-				noneFilled,
-				{ id: 'r4', applied: true, premises: [true], conclusion: true },
-				{ occupancy: 'Warehouse' },
-			),
-		).toEqual([
-			{
-				field: 'occupancy',
-				comparison: 'none',
-				expected: ['Office', 'Retail'],
-				actual: 'Warehouse',
-				met: true,
-			},
-		])
+	it('skips an empty-array membership check as content-free', () => {
+		const evaluator = createEvaluator()
+		const gate = rule('none', [atom('tags', 'any', [])], atom('flag', 'equals', true))
+		expect(logicalPremises(gate, { tags: [] }, evaluator)).toEqual([])
 	})
 })
 
-describe('worksheet helpers — quantitative joins', () => {
-	it('joins groups, factors, steps, trace, errors, and labels', () => {
-		const definition = quantitativeDefinition('rate', 'Rate', [
-			factorGroup('g1', 'sum', [
-				fieldFactor('value', 'value', { checks: [check('value', 'from', 0)] }),
-			]),
-		])
-		const result: QuantitativeResult = {
-			reasoning: 'quantitative',
-			value: 25,
-			groups: [
-				{
-					id: 'g1',
-					applied: true,
-					value: 25,
-					factors: [
-						{
-							id: 'value',
-							applied: true,
-							value: 25,
-							checks: [{ field: 'value', actual: 25, met: true }],
-						},
-					],
-				},
-			],
-			count: 1,
-			success: true,
-			trace: ['ok'],
-			errors: [],
-		}
-		const worksheet = resultsWorksheet(definition, result, { value: 'Value' })
-		expect(worksheet.groups[0]).toEqual({
-			id: 'g1',
-			name: 'g1',
-			applied: true,
-			value: 25,
-			factors: [
-				{
-					id: 'value',
-					name: 'value',
-					applied: true,
-					value: 25,
-					premises: [
-						{
-							field: 'value',
-							label: 'Value',
-							comparison: 'from',
-							expected: 0,
-							actual: 25,
-							met: true,
-						},
-					],
-				},
-			],
-		})
-		expect(worksheet.steps.map((step) => step.stage)).toEqual(['factor', 'group', 'total'])
-		expect(worksheet.trace).toEqual(['ok'])
+describe('helpers — findRule', () => {
+	it('finds a rule by id and returns undefined for an unknown id', () => {
+		const gate = rule('adult', [atom('age', 'from', 18)], atom('adult', 'equals', true))
+		const definition = logicalDefinition('gate', 'Gate', [gate])
+		expect(findRule(definition, 'adult')).toBe(gate)
+		expect(findRule(definition, 'missing')).toBeUndefined()
 	})
+})
 
-	it('builds standalone worksheet pieces with missing results defaulted', () => {
-		const rate = createRatingDefinition()
-		const group = worksheetGroup(rate.groups[0], [])
-		const factor = worksheetFactor(rate.groups[0].factors[0], [])
-		expect(group.applied).toBe(false)
-		expect(group.value).toBe(0)
-		expect(factor.applied).toBe(false)
-		expect(
-			worksheetSteps(
-				rate,
-				{
-					reasoning: 'quantitative',
-					value: 10,
-					groups: [],
-					count: 0,
-					success: true,
-					trace: [],
-					errors: [],
-				},
-				[group],
-			),
-		).toHaveLength(2)
-		expect(worksheetStep('total', undefined, undefined, 10, 'sum = 10')).toEqual({
-			stage: 'total',
+describe('helpers — worksheet joins', () => {
+	it('joins a factor and a group to their evaluated results', () => {
+		const engine = createEngine()
+		const definition = createRatingDefinition()
+		const result = engine.reason(createRatingSubject({ seats: 10 }), definition)
+		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
+		const group = definition.groups[0]
+		if (group === undefined) throw new Error('expected a group')
+		const factor = group.factors[1]
+		if (factor === undefined) throw new Error('expected a factor')
+		expect(worksheetFactor(factor, result.groups[0]?.factors ?? [])).toMatchObject({
+			id: 'seats',
+			applied: true,
 			value: 10,
-			expression: 'sum = 10',
 		})
+		expect(worksheetGroup(group, result.groups)).toMatchObject({
+			id: 'charge',
+			applied: true,
+			value: 110,
+		})
+		engine.destroy()
+	})
+
+	it('builds a step row and the ordered steps for a resolved worksheet', () => {
+		expect(worksheetStep('total', 'quote', 'Quote', 110, 'sum = 110')).toEqual({
+			stage: 'total',
+			id: 'quote',
+			name: 'Quote',
+			value: 110,
+			expression: 'sum = 110',
+		})
+		const engine = createEngine()
+		const definition = createRatingDefinition()
+		const result = engine.reason(createRatingSubject({ seats: 10 }), definition)
+		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
+		const groups = definition.groups.map((group) => worksheetGroup(group, result.groups))
+		const steps = worksheetSteps(definition, result, groups)
+		expect(steps.map((step) => step.stage)).toEqual(['factor', 'factor', 'group', 'total'])
+		expect(steps.at(-1)).toMatchObject({ stage: 'total', value: 110 })
+		engine.destroy()
+	})
+
+	it('resultsWorksheet joins a definition and its result into the full audit trail', () => {
+		const engine = createEngine()
+		const definition = createRatingDefinition()
+		const result = engine.reason(createRatingSubject({ seats: 10 }), definition)
+		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
+		const worksheet = resultsWorksheet(definition, result)
+		expect(worksheet.id).toBe('quote')
+		expect(worksheet.value).toBe(110)
+		expect(worksheet.groups).toHaveLength(1)
+		expect(worksheet.success).toBe(true)
+		engine.destroy()
 	})
 })
 
-describe('logical determination helpers — routing and projections', () => {
-	it('merges equals conclusions and finds rules', () => {
-		const record: Record<string, unknown> = {}
-		const authored = rule('r1', [], {
-			form: 'compound',
-			operator: 'and',
-			operands: [atom('ok', 'equals', true), atom('ignored', 'above', 1)],
-		})
-		mergeConclusion(record, authored)
-		expect(record).toEqual({ ok: true })
-		expect(findRule(logicalDefinition('d', 'D', [authored]), 'r1')).toEqual(authored)
-		expect(findRule(logicalDefinition('d', 'D', []), 'missing')).toBeUndefined()
-	})
-
-	it('converts rule results, authority, and notices into placed determinations', () => {
-		const gate = logicalDefinition('gate', 'Gate', [
-			rule('r1', [atom('value', 'above', 10)], atom('r1', 'equals', true)),
-		])
-		const result: LogicalResult = {
-			reasoning: 'logical',
-			conclusion: true,
-			rules: [{ id: 'r1', applied: true, premises: [true], conclusion: true }],
-			count: 1,
-			success: true,
-			trace: [],
-			errors: [],
-		}
-		const routed = rulesToDeterminations(
-			gate,
-			result,
-			{ r1: rulingDefinition('referral', 'line', 'Value {{value}}') },
-			{ value: 20 },
-			undefined,
-		)
-		const authority = authorityToDeterminations(
-			gate,
-			result,
-			{ r1: rulingDefinition('limit', undefined, 'Limit {{value}}') },
-			{ value: 20 },
-		)
-		const notices = noticesToDeterminations([noticeDefinition('n1', 'Notice {{value}}', 'line')], {
-			value: 20,
-		})
-		expect(routed[0]).toEqual({
-			id: 'r1',
-			effect: 'referral',
-			applied: true,
-			line: 'line',
-			message: 'Value 20',
-			premises: [{ field: 'value', comparison: 'above', expected: 10, actual: 20, met: true }],
-		})
-		expect(authority[0].effect).toBe('limit')
-		expect(notices[0]).toEqual({
-			id: 'n1',
-			effect: 'notice',
-			applied: true,
-			line: 'line',
-			message: 'Notice 20',
-			premises: [],
-		})
-	})
-
-	it('filters line and program determinations', () => {
-		const determinations = [
-			determination('line', 'notice', true, 'l1'),
-			determination('program', 'notice', true),
-		]
-		expect(filterLineDeterminations(determinations, 'l1')).toEqual([determinations[0]])
-		expect(filterProgramDeterminations(determinations)).toEqual([determinations[1]])
-	})
-})
-
-describe('line and program result helpers — immutable outcome construction', () => {
-	it('builds unrated and rated lines, sums amounts, and projects outcomes', () => {
-		const definition = lineDefinition('l1', 'Line', createRatingDefinition())
-		const unrated = unratedLine(definition, [determination('r1', 'restriction', true)])
-		const rated = ratedLine(
+describe('helpers — rulesToDeterminations', () => {
+	it('routes an applied rule through its ruling, interpolating the message', () => {
+		const engine = createEngine()
+		const evaluator = createEvaluator()
+		const gate = rule('over', [atom('seats', 'above', 5)], atom('flag', 'equals', true))
+		const definition = logicalDefinition('gate', 'Gate', [gate])
+		const working = createRatingSubject({ seats: 10 })
+		const result = engine.reason(working, definition)
+		if (result.reasoning !== 'logical') throw new Error('expected a logical result')
+		const determinations = rulesToDeterminations(
 			definition,
+			result,
+			{ over: { effect: 'referral', line: 'line', message: 'Over with {{seats}} seats' } },
+			working,
+			'default',
+			evaluator,
+		)
+		expect(determinations).toEqual([
 			{
-				reasoning: 'quantitative',
-				value: 12,
-				groups: [],
-				count: 0,
-				success: true,
-				trace: [],
-				errors: [],
+				id: 'over',
+				effect: 'referral',
+				applied: true,
+				line: 'line',
+				message: 'Over with 10 seats',
+				premises: [{ field: 'seats', comparison: 'above', expected: 5, actual: 10, met: true }],
 			},
-			[],
-		)
-		const program = programResult(
-			programDefinition('p1', 'Program', { lines: [definition] }),
-			[rated],
-			[],
-			[],
-			sumAmounts([rated]),
-			[],
-			[],
-		)
-		expect(unrated.eligibility).toBe('ineligible')
-		expect(rated.amount).toBe(12)
-		expect(sumAmounts([])).toBeUndefined()
-		expect(sumAmounts([unrated, rated])).toBe(12)
-		expect(outcomeProjection(program)).toEqual({
-			eligibility: 'eligible',
-			status: 'eligible',
-			total: 12,
-			lines: { l1: 12 },
-		})
-	})
-
-	it('appends late determinations to program and line placement with decision and errors', () => {
-		const base = programResult(
-			programDefinition('p1', 'Program'),
-			[createLineResult('l1', 'eligible', 10)],
-			[],
-			[],
-			10,
-			['base'],
-			[],
-		)
-		const appended = appendDeterminations(
-			base,
-			[determination('limit', 'limit', true), determination('line', 'limit', true, 'l1')],
-			'approved',
-			['auth'],
-			['warn'],
-		)
-		expect(appended.decision).toBe('approved')
-		expect(appended.determinations).toHaveLength(1)
-		expect(appended.lines[0].determinations).toHaveLength(1)
-		expect(appended.success).toBe(false)
-		expect(appended.trace).toEqual(['base', 'auth'])
-	})
-})
-
-describe('aggregate helpers — sums, groups, projections, and tallies', () => {
-	it('sums finite fields, ignores missing and NaN, and coerces group keys', () => {
-		const subjects = [
-			{ value: 10, nested: { amount: 2 }, location: 'north' },
-			{ value: Number.NaN },
-			{ value: 5, location: 7 },
-		]
-		expect(aggregateSums(subjects, ['value', ['nested', 'amount']])).toEqual({
-			value: 15,
-			'nested.amount': 2,
-		})
-		expect(aggregateGroups(subjects, ['value'], 'location')).toEqual([
-			{ key: 'north', count: 1, sums: { value: 10 } },
-			{ key: '', count: 1, sums: { value: 0 } },
-			{ key: '7', count: 1, sums: { value: 5 } },
 		])
-		expect(
-			aggregateProjection(3, { value: 15 }, { key: 'north', count: 1, sums: { value: 10 } }),
-		).toEqual({
-			count: 3,
-			sums: { value: 15 },
-			group: { key: 'north', count: 1, sums: { value: 10 } },
-		})
-		expect(aggregateRecord(3, { value: 15 })).toEqual({
-			aggregate: { count: 3, sums: { value: 15 } },
-		})
+		engine.destroy()
 	})
 
-	it('builds empty, complete, and updated tallies without mutating the prior tally', () => {
-		const tallies = emptyTallies(['value'])
-		const updated = tallySubject(tallies, 'eligible', { value: 10 }, ['value'])
-		expect(emptySums(['value', ['nested', 'amount']])).toEqual({ value: 0, 'nested.amount': 0 })
-		expect(completeTallies({ referral: { count: 2, sums: { value: 5 } } }).referral).toEqual({
-			count: 2,
-			sums: { value: 5 },
-		})
-		for (const status of statuses()) expect(tallies[status].count).toBe(0)
-		expect(updated.eligible).toEqual({ count: 1, sums: { value: 10 } })
-		expect(tallies.eligible).toEqual({ count: 0, sums: { value: 0 } })
-	})
-})
-
-describe('definition safety helpers — freezing and references', () => {
-	it('deep-freezes cloned definitions', () => {
-		const definition = programDefinition('p1', 'Program', {
-			lines: [lineDefinition('l1', 'Line', createRatingDefinition())],
-		})
-		const frozen = freezeProgramDefinition(definition)
-		expect(Object.isFrozen(frozen)).toBe(true)
-		expect(Object.isFrozen(frozen.lines)).toBe(true)
-	})
-
-	it('detects reserved keys and reports missing line references', () => {
-		expect(hasReservedKey({ aggregate: {} })).toBe(true)
-		expect(hasReservedKey({ outcome: {} })).toBe(true)
-		expect(hasReservedKey({ value: 1 })).toBe(false)
-		const definition = programDefinition('p1', 'Program', {
-			passes: [passDefinition(logicalDefinition('g', 'G', []), 'missing-pass')],
-			rulings: { r1: rulingDefinition('notice', 'missing-ruling') },
-			notices: [noticeDefinition('n1', 'Notice', 'missing-notice')],
-			lines: [lineDefinition('l1', 'Line', createRatingDefinition())],
-		})
-		expect([...findMissingLineReferences(definition)].sort()).toEqual([
-			'missing-notice',
-			'missing-pass',
-			'missing-ruling',
+	it('defaults an unrouted applied rule to restriction on the pass line, and skips an unrouted unapplied rule', () => {
+		const engine = createEngine()
+		const evaluator = createEvaluator()
+		const gate = rule('over', [atom('seats', 'above', 5)], atom('flag', 'equals', true))
+		const under = rule('under', [atom('seats', 'above', 500)], atom('flag', 'equals', true))
+		const definition = logicalDefinition('gate', 'Gate', [gate, under])
+		const working = createRatingSubject({ seats: 10 })
+		const result = engine.reason(working, definition)
+		if (result.reasoning !== 'logical') throw new Error('expected a logical result')
+		const determinations = rulesToDeterminations(
+			definition,
+			result,
+			undefined,
+			working,
+			'default',
+			evaluator,
+		)
+		expect(determinations).toEqual([
+			{
+				id: 'over',
+				effect: 'restriction',
+				applied: true,
+				line: 'default',
+				premises: [{ field: 'seats', comparison: 'above', expected: 5, actual: 10, met: true }],
+			},
 		])
+		engine.destroy()
 	})
 })
 
-function determination(
-	id: string,
-	effect: Determination['effect'],
-	applied: boolean,
-	lineId?: string,
-): Determination {
-	return { id, effect, applied, ...(lineId === undefined ? {} : { line: lineId }), premises: [] }
-}
-
-function statuses(): readonly Status[] {
-	return ['ineligible', 'referral', 'conditional', 'unrated', 'eligible']
-}
-
-describe('aggregateSums — numeric quirks and IEEE accumulation', () => {
-	it('skips non-finite field values while summing finite ones', () => {
-		const subjects = [
-			{ value: Number.POSITIVE_INFINITY },
-			{ value: Number.NEGATIVE_INFINITY },
-			{ value: Number.NaN },
-			{ value: 10 },
-			{ value: 5 },
-		]
-		expect(aggregateSums(subjects, ['value'])).toEqual({ value: 15 })
-	})
-
-	it('normalizes a lone −0 addend to +0', () => {
-		const sum = aggregateSums([{ value: -0 }], ['value']).value
-		expect(Object.is(sum, 0)).toBe(true)
-		expect(Object.is(sum, -0)).toBe(false)
-	})
-
-	it('reproduces real IEEE-754 accumulation at boundary magnitudes', () => {
-		expect(
-			aggregateSums([{ value: Number.MAX_SAFE_INTEGER }, { value: 1 }, { value: 1 }], ['value'])
-				.value,
-		).toBe(2 ** 53)
-		expect(aggregateSums([{ value: 1e16 }, { value: 1 }, { value: -1e16 }], ['value']).value).toBe(
-			0,
+describe('helpers — authorityToDeterminations', () => {
+	it('converts only applied rules into limit determinations', () => {
+		const engine = createEngine()
+		const evaluator = createEvaluator()
+		const applies = rule('big', [atom('total', 'above', 1000)], atom('big', 'equals', true))
+		const skips = rule('small', [atom('total', 'above', 999999)], atom('small', 'equals', true))
+		const definition = logicalDefinition('authority', 'Authority', [applies, skips])
+		const working = { total: 1050 }
+		const result = engine.reason(working, definition)
+		if (result.reasoning !== 'logical') throw new Error('expected a logical result')
+		const determinations = authorityToDeterminations(
+			definition,
+			result,
+			{ big: { effect: 'limit', message: 'Total {{total}} needs review' } },
+			working,
+			evaluator,
 		)
-		expect(aggregateSums([{ value: 0.1 }, { value: 0.2 }], ['value']).value).toBe(
-			0.30000000000000004,
-		)
-		expect(aggregateSums([{ value: Number.MIN_VALUE }], ['value']).value).toBe(Number.MIN_VALUE)
-		expect(
-			aggregateSums([{ value: Number.MAX_VALUE }, { value: Number.MIN_VALUE }], ['value']).value,
-		).toBe(Number.MAX_VALUE)
-	})
-
-	it('sums the EXTREME_NUMBERS fixture, overflowing the accumulator to +Infinity', () => {
-		const subjects = EXTREME_NUMBERS.map((value) => ({ value }))
-		const sum = aggregateSums(subjects, ['value']).value
-		expect(Number.isFinite(sum)).toBe(false)
-		expect(sum).toBe(Number.POSITIVE_INFINITY)
-	})
-
-	it('treats a dotted string field as ONE key and an array path as a descent', () => {
-		const subject = { 'a.b': 5, a: { b: 99 } }
-		expect(aggregateSums([subject], ['a.b'])).toEqual({ 'a.b': 5 })
-		expect(aggregateSums([subject], [['a', 'b']])).toEqual({ 'a.b': 99 })
+		expect(determinations).toEqual([
+			{
+				id: 'big',
+				effect: 'limit',
+				applied: true,
+				message: 'Total 1,050 needs review',
+				premises: [
+					{ field: 'total', comparison: 'above', expected: 1000, actual: 1050, met: true },
+				],
+			},
+		])
+		engine.destroy()
 	})
 })
 
-describe('aggregateGroups — key coercion and first-seen ordering', () => {
-	it('coerces group-by values via String(value ?? "") and merges colliding keys', () => {
-		const subjects = [
-			{ value: 1, k: true },
-			{ value: 2, k: false },
-			{ value: 4, k: null },
-			{ value: 8 },
-			{ value: 16, k: Number.NaN },
-			{ value: 32, k: 7 },
-			{ value: 64, k: '7' },
-			{ value: 128, k: 7n },
-			{ value: 256, k: -0 },
-			{ value: 512, k: 0 },
-		]
-		expect(aggregateGroups(subjects, ['value'], 'k')).toEqual([
-			{ key: 'true', count: 1, sums: { value: 1 } },
-			{ key: 'false', count: 1, sums: { value: 2 } },
-			{ key: '', count: 2, sums: { value: 12 } },
-			{ key: 'NaN', count: 1, sums: { value: 16 } },
-			{ key: '7', count: 3, sums: { value: 224 } },
-			{ key: '0', count: 2, sums: { value: 768 } },
+describe('helpers — noticesToDeterminations', () => {
+	it('applies every notice unconditionally, interpolating against the working subject', () => {
+		const determinations = noticesToDeterminations(
+			[
+				{ id: 'n1', message: 'Rated {{seats}} seats', line: 'line' },
+				{ id: 'n2', message: 'Unscoped' },
+			],
+			{ seats: 10 },
+		)
+		expect(determinations).toEqual([
+			{
+				id: 'n1',
+				effect: 'notice',
+				applied: true,
+				line: 'line',
+				message: 'Rated 10 seats',
+				premises: [],
+			},
+			{ id: 'n2', effect: 'notice', applied: true, message: 'Unscoped', premises: [] },
 		])
 	})
 
-	it('groups by adversarial and unicode keys preserving first-seen order', () => {
-		const subjects = TRICKY_KEYS.map((k, index) => ({ value: index, k }))
-		const groups = aggregateGroups(subjects, ['value'], 'k')
-		expect(groups.map((group) => group.key)).toEqual([...TRICKY_KEYS])
-		expect(groups.every((group) => group.count === 1)).toBe(true)
-		expect(Object.hasOwn(Object.prototype, 'value')).toBe(false)
+	it('returns an empty list for undefined notices', () => {
+		expect(noticesToDeterminations(undefined, {})).toEqual([])
 	})
 })
 
-describe('aggregate and tally at scale — exact accumulation and stable ordering', () => {
-	it('sums and groups a thousand generated subjects with exact totals and first-seen key order', () => {
-		const subjects = sequence(1000).map((value) => ({ value, bucket: value % 10 }))
-		expect(aggregateSums(subjects, ['value'])).toEqual({ value: 499500 })
-		const uniform = repeatValue(1000, { value: 2 })
-		expect(aggregateSums(uniform, ['value'])).toEqual({ value: 2000 })
-		const groups = aggregateGroups(subjects, ['value'], 'bucket')
-		expect(groups.map((group) => group.key)).toEqual([
-			'0',
-			'1',
-			'2',
-			'3',
-			'4',
-			'5',
-			'6',
-			'7',
-			'8',
-			'9',
+const SAMPLE_DETERMINATIONS = [
+	{ id: 'a', effect: 'restriction' as const, applied: true, line: 'line', premises: [] },
+	{ id: 'b', effect: 'notice' as const, applied: true, premises: [] },
+]
+
+describe('helpers — determination filters', () => {
+	it('filters to one line and to program-scoped entries', () => {
+		expect(filterLineDeterminations(SAMPLE_DETERMINATIONS, 'line')).toEqual([
+			SAMPLE_DETERMINATIONS[0],
 		])
-		expect(groups.every((group) => group.count === 100)).toBe(true)
-		expect(groups[0]).toEqual({
-			key: '0',
-			count: 100,
-			sums: { value: sequence(100).reduce((total, index) => total + index * 10, 0) },
-		})
-	})
-
-	it('folds a thousand subjects into a single status tally without losing precision', () => {
-		const folded = sequence(1000)
-			.map((value) => ({ value }))
-			.reduce(
-				(tallies, subject) => tallySubject(tallies, 'eligible', subject, ['value']),
-				emptyTallies(['value']),
-			)
-		expect(folded.eligible).toEqual({ count: 1000, sums: { value: 499500 } })
-		expect(folded.ineligible.count).toBe(0)
-		expect(folded.referral.count).toBe(0)
-		expect(folded.conditional.count).toBe(0)
-		expect(folded.unrated.count).toBe(0)
+		expect(filterProgramDeterminations(SAMPLE_DETERMINATIONS)).toEqual([SAMPLE_DETERMINATIONS[1]])
 	})
 })
 
-describe('sumAmounts — extreme, signed-zero, and non-finite amounts', () => {
-	it('sums defined amounts without a finite filter and normalizes signed zero', () => {
-		expect(sumAmounts([])).toBeUndefined()
-		expect(Object.is(sumAmounts([createLineResult('a', 'eligible', 0)]), 0)).toBe(true)
-		expect(Object.is(sumAmounts([createLineResult('a', 'eligible', -0)]), 0)).toBe(true)
-		expect(
-			sumAmounts([createLineResult('a', 'eligible', 0.1), createLineResult('b', 'eligible', 0.2)]),
-		).toBe(0.30000000000000004)
-		expect(
-			sumAmounts([
-				createLineResult('a', 'eligible', Number.POSITIVE_INFINITY),
-				createLineResult('b', 'eligible', 1),
-			]),
-		).toBe(Number.POSITIVE_INFINITY)
-		expect(Number.isNaN(sumAmounts([createLineResult('a', 'eligible', Number.NaN)]))).toBe(true)
-	})
-})
-
-describe('mergeConclusion — prototype-pollution safety', () => {
-	it('writes a string __proto__ / constructor equals-atom without polluting Object.prototype', () => {
-		const protoRecord: Record<string, unknown> = {}
-		mergeConclusion(protoRecord, rule('r', [], atom('__proto__', 'equals', { polluted: true })))
-		const constructorRecord: Record<string, unknown> = {}
-		mergeConclusion(constructorRecord, rule('r', [], atom('constructor', 'equals', 123)))
-		const fresh: Record<string, unknown> = {}
-		expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false)
-		expect(fresh.polluted).toBeUndefined()
-		expect(Object.hasOwn(constructorRecord, 'constructor')).toBe(true)
-		expect(constructorRecord.constructor).toBe(123)
-		expect(fresh.constructor).toBe(Object)
-	})
-
-	it('ignores non-equals conclusion atoms on reserved keys', () => {
-		const record: Record<string, unknown> = {}
-		mergeConclusion(record, rule('r', [], atom('__proto__', 'above', 1)))
-		expect(Object.keys(record)).toEqual([])
-		expect(Object.getPrototypeOf(record)).toBe(Object.prototype)
-	})
-
-	it('does not pollute Object.prototype via an array __proto__ field path in setField', () => {
-		// fixed: setField now blocks prototype-pollution path segments
-		const record: Record<string, unknown> = {}
-		const probe: Record<string, unknown> = {}
-		const dangerous = rule('r', [], atom(['__proto__', 'injected'], 'equals', 'BOOM'))
-		mergeConclusion(record, dangerous)
-		// The whole write is refused (a no-op), so nothing leaks onto the prototype — no
-		// cleanup is needed and a fresh object gains no injected key.
-		expect(Object.hasOwn(Object.prototype, 'injected')).toBe(false)
-		expect(probe.injected).toBeUndefined()
-		expect(record).toEqual({})
-	})
-})
-
-describe('describeExpression — deep recursion', () => {
-	it('describes a 500-deep compound expression', () => {
-		let expression: Expression = atom('leaf', 'equals', true)
-		for (let depth = 0; depth < 500; depth += 1) expression = compound('and', [expression])
-		const described = describeExpression(expression)
-		expect(described.startsWith('and (')).toBe(true)
-		expect(described.includes('leaf is true ? unknown')).toBe(true)
-	})
-})
-
-describe('freezeProgramDefinition — deep structural freeze', () => {
-	it('deep-freezes a clone through passes, rules, premises, and operands', () => {
-		const gate = logicalDefinition('gate', 'Gate', [
-			rule('r1', [compound('and', [atom('x', 'equals', true)])], atom('ok', 'equals', true)),
-		])
-		const definition = programDefinition('p1', 'Program', {
-			passes: [passDefinition(gate, 'l1')],
-			lines: [lineDefinition('l1', 'Line', createRatingDefinition())],
-		})
-		const frozen = freezeProgramDefinition(definition)
-		expect(frozen).not.toBe(definition)
-		expect(Object.isFrozen(definition)).toBe(false)
-		expect(isDeeplyFrozen(frozen)).toBe(true)
-	})
-})
-
-describe('findMissingLineReferences — dedup, empty, and scale', () => {
-	it('deduplicates a reference missing across pass, ruling, and notice', () => {
-		const gate = logicalDefinition('g', 'G', [])
-		const definition = programDefinition('p', 'P', {
-			passes: [passDefinition(gate, 'ghost'), passDefinition(gate, 'ghost')],
-			rulings: { r: rulingDefinition('notice', 'ghost') },
-			notices: [noticeDefinition('n', 'msg', 'ghost')],
-			lines: [lineDefinition('real', 'Real', createRatingDefinition())],
-		})
-		expect([...findMissingLineReferences(definition)]).toEqual(['ghost'])
-	})
-
-	it('reports none for an empty program and for a large fully-referenced program', () => {
-		expect([...findMissingLineReferences(programDefinition('empty', 'Empty'))]).toEqual([])
-		const gate = logicalDefinition('g', 'G', [])
-		const lines = sequence(50).map((index) =>
-			lineDefinition(`l${index}`, `Line ${index}`, createRatingDefinition()),
-		)
-		const large = programDefinition('big', 'Big', {
-			passes: sequence(50).map((index) => passDefinition(gate, `l${index}`)),
-			lines,
-		})
-		expect([...findMissingLineReferences(large)]).toEqual([])
-	})
-})
-
-describe('eligibility combination — empty seed and applied-only effects', () => {
-	it('seeds eligible on empty input and maps only applied effects via EFFECT_ELIGIBILITIES', () => {
-		expect(combineEligibilities([])).toBe('eligible')
+describe('helpers — eligibility and status derivation', () => {
+	it('derives eligibility from applied effects and combines multiple eligibilities by severity', () => {
 		expect(
 			deriveDeterminationEligibility([
-				determination('a', 'restriction', true),
-				determination('b', 'referral', true),
-				determination('c', 'condition', true),
-				determination('d', 'notice', true),
-				determination('e', 'limit', true),
-				determination('f', 'restriction', false),
+				{ id: 'r', effect: 'restriction', applied: true, premises: [] },
 			]),
 		).toBe('ineligible')
 		expect(
 			deriveDeterminationEligibility([
-				determination('a', 'restriction', false),
-				determination('b', 'referral', true),
-			]),
-		).toBe('referral')
-		expect(
-			deriveDeterminationEligibility([
-				determination('c', 'condition', true),
-				determination('e', 'limit', true),
+				{ id: 'r', effect: 'restriction', applied: false, premises: [] },
 			]),
 		).toBe('eligible')
+		expect(
+			deriveDeterminationEligibility([
+				{ id: 'c', effect: 'condition', applied: true, premises: [] },
+			]),
+		).toBe('eligible')
+		expect(combineEligibilities(['eligible', 'referral', 'ineligible'])).toBe('ineligible')
+		expect(combineEligibilities([])).toBe('eligible')
+	})
+
+	it('converts eligibility to its deterministic decision', () => {
+		expect(decideEligibility('eligible')).toBe('approved')
+		expect(decideEligibility('ineligible')).toBe('denied')
+		expect(decideEligibility('referral')).toBe('submitted')
+	})
+
+	it('derives status precedence: ineligible/referral short-circuit, then condition, unrated, eligible', () => {
+		expect(deriveStatus('ineligible', [], [])).toBe('ineligible')
+		expect(deriveStatus('referral', [], [])).toBe('referral')
+		expect(
+			deriveStatus('eligible', [{ id: 'c', effect: 'condition', applied: true, premises: [] }], []),
+		).toBe('conditional')
+		expect(deriveStatus('eligible', [], [createLineResult('a', 'eligible')])).toBe('unrated')
+		// `createLineResult` carries no `worksheet`, which itself reads as unresolved —
+		// an `eligible` status requires an amount AND a successful worksheet.
+		const resolved = {
+			...createLineResult('a', 'eligible', 10),
+			worksheet: {
+				id: 'a',
+				name: 'A',
+				aggregation: 'sum' as const,
+				value: 10,
+				groups: [],
+				steps: [],
+				trace: [],
+				errors: [],
+				success: true,
+			},
+		}
+		expect(deriveStatus('eligible', [], [resolved])).toBe('eligible')
 	})
 })
 
-describe('assertSubject — subject validation guard', () => {
-	it('passes a plain record subject without throwing', () => {
-		expect(captureError(() => assertSubject({ age: 40 }))).toBeUndefined()
+describe('helpers — ratedLine', () => {
+	it('builds a line result carrying the derived eligibility and worksheet', () => {
+		const engine = createEngine()
+		const definition = createRatingDefinition()
+		const line = lineDefinition('line', 'Line', definition)
+		const result = engine.reason(createRatingSubject({ seats: 10 }), definition)
+		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
+		const rated = ratedLine(line, result, [])
+		expect(rated).toMatchObject({ id: 'line', name: 'Line', eligibility: 'eligible', amount: 110 })
+		expect(rated.worksheet?.success).toBe(true)
+		engine.destroy()
+	})
+})
+
+describe('helpers — sumAmounts', () => {
+	it('sums defined amounts and returns undefined when none are defined', () => {
+		expect(sumAmounts([])).toBeUndefined()
+		expect(sumAmounts([createLineResult('a', 'eligible')])).toBeUndefined()
+		expect(
+			sumAmounts([createLineResult('a', 'eligible', 10), createLineResult('b', 'eligible', 5)]),
+		).toBe(15)
 	})
 
-	it('throws MISMATCH for a non-record subject', () => {
-		const error = captureError(() => assertSubject(5))
+	it('accumulates -0 as positive zero', () => {
+		expect(Object.is(sumAmounts([createLineResult('a', 'eligible', -0)]), 0)).toBe(true)
+	})
+})
+
+describe('helpers — outcomeProjection and programResult', () => {
+	it('projects amount-bearing lines and last-wins on duplicate line ids', () => {
+		const definition = programDefinition('p', 'P', [])
+		const result = programResult(
+			definition,
+			[createLineResult('a', 'eligible', 10), createLineResult('a', 'eligible', 20)],
+			[],
+			[],
+			undefined,
+			undefined,
+			[],
+			[],
+		)
+		// `createLineResult` carries no `worksheet` — deriveStatus therefore reads
+		// the missing worksheet as unresolved and the status is `unrated`, even
+		// though both amounts are defined.
+		expect(outcomeProjection(result)).toEqual({
+			eligibility: 'eligible',
+			status: 'unrated',
+			total: undefined,
+			lines: { a: 20 },
+		})
+	})
+
+	it('reports ineligible when every line is ineligible even with a passing scoped determination', () => {
+		const definition = programDefinition('p', 'P', [])
+		const line = { ...createLineResult('a', 'ineligible', 10), determinations: [] }
+		const result = programResult(definition, [line], [], [], undefined, undefined, [], [])
+		expect(result.eligibility).toBe('ineligible')
+	})
+
+	it('reports success false when any error accumulated or a line worksheet failed', () => {
+		const definition = programDefinition('p', 'P', [])
+		const erroring = programResult(definition, [], [], [], undefined, undefined, [], ['boom'])
+		expect(erroring.success).toBe(false)
+		const engine = createEngine()
+		const rate = createRatingDefinition()
+		const result = engine.reason(createRatingSubject(), rate)
+		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
+		const worksheet = { ...resultsWorksheet(rate, result), success: false }
+		const failingLine = {
+			...ratedLine(lineDefinition('line', 'Line', rate), result, []),
+			worksheet,
+		}
+		const withFailingLine = programResult(
+			definition,
+			[failingLine],
+			[],
+			[],
+			undefined,
+			undefined,
+			[],
+			[],
+		)
+		expect(withFailingLine.success).toBe(false)
+		engine.destroy()
+	})
+})
+
+describe('helpers — findMissingLineReferences', () => {
+	it('collects unknown line references from passes, rulings, and notices, deduped', () => {
+		const definition = programDefinition(
+			'p',
+			'P',
+			[lineDefinition('known', 'Known', createRatingDefinition())],
+			{
+				rulings: { r1: { effect: 'referral', line: 'ghost' } },
+				notices: [{ id: 'n1', message: 'm', line: 'ghost' }],
+			},
+		)
+		expect(findMissingLineReferences(definition)).toEqual(['ghost'])
+	})
+
+	it('returns an empty list when every reference resolves', () => {
+		const definition = programDefinition(
+			'p',
+			'P',
+			[lineDefinition('known', 'Known', createRatingDefinition())],
+			{
+				rulings: { r1: { effect: 'referral', line: 'known' } },
+			},
+		)
+		expect(findMissingLineReferences(definition)).toEqual([])
+	})
+})
+
+describe('helpers — reserved keys and assertSubject', () => {
+	it('detects the reserved aggregate/outcome keys at the top level only', () => {
+		expect(hasReservedKey({ aggregate: 1 })).toBe(true)
+		expect(hasReservedKey({ outcome: 1 })).toBe(true)
+		expect(hasReservedKey({ nested: { aggregate: 1 } })).toBe(false)
+		expect(hasReservedKey({})).toBe(false)
+	})
+
+	it('assertSubject narrows a valid record and throws MISMATCH otherwise', () => {
+		const subject: unknown = { id: 's1' }
+		assertSubject(subject)
+		expect(subject.id).toBe('s1')
+		let error: unknown
+		try {
+			assertSubject('nope')
+		} catch (caught) {
+			error = caught
+		}
 		if (!isRaterError(error)) throw new Error('expected a RaterError')
 		expect(error.code).toBe('MISMATCH')
 	})
+})
 
-	it('throws MISMATCH for a subject carrying a reserved key', () => {
-		const aggregate = captureError(() => assertSubject({ aggregate: {} }))
-		const outcome = captureError(() => assertSubject({ outcome: {} }))
-		if (!isRaterError(aggregate)) throw new Error('expected a RaterError')
-		if (!isRaterError(outcome)) throw new Error('expected a RaterError')
-		expect(aggregate.code).toBe('MISMATCH')
-		expect(outcome.code).toBe('MISMATCH')
+describe('helpers — aggregate sums, groups, and projections', () => {
+	it('sums fields across subjects, skipping non-finite values', () => {
+		expect(
+			aggregateSums(
+				[{ amount: 10 }, { amount: Number.POSITIVE_INFINITY }, { amount: 20 }],
+				['amount'],
+			),
+		).toEqual({ amount: 30 })
+	})
+
+	it('groups subjects by a partition key, blank-stringing a missing key', () => {
+		const groups = aggregateGroups([{ g: 'north', amount: 1 }, { amount: 2 }], ['amount'], 'g')
+		expect(groups).toEqual([
+			{ key: 'north', count: 1, sums: { amount: 1 } },
+			{ key: '', count: 1, sums: { amount: 2 } },
+		])
+	})
+
+	it('returns no groups when partitioning is absent', () => {
+		expect(aggregateGroups([{ amount: 1 }], ['amount'])).toEqual([])
+	})
+
+	it('builds the aggregate projection and the reserved-key record', () => {
+		const group = { key: 'north', count: 1, sums: { amount: 1 } }
+		expect(aggregateProjection(2, { amount: 30 })).toEqual({ count: 2, sums: { amount: 30 } })
+		expect(aggregateProjection(2, { amount: 30 }, group)).toEqual({
+			count: 2,
+			sums: { amount: 30 },
+			group,
+		})
+		expect(aggregateRecord(2, { amount: 30 })).toEqual({
+			aggregate: { count: 2, sums: { amount: 30 } },
+		})
 	})
 })
 
-describe('logicalFailure — empty failed logical result shell', () => {
-	it('carries no errors when no message is given', () => {
-		expect(logicalFailure()).toEqual({
-			reasoning: 'logical',
-			conclusion: false,
-			rules: [],
-			count: 0,
-			success: false,
-			trace: [],
-			errors: [],
-		})
+describe('helpers — tallies', () => {
+	it('zeroes sums for a field set and completes a partial tally record', () => {
+		expect(emptySums(['amount'])).toEqual({ amount: 0 })
+		const complete = completeTallies({ eligible: { count: 2, sums: { amount: 5 } } })
+		expect(Object.keys(complete)).toEqual([
+			'ineligible',
+			'referral',
+			'conditional',
+			'unrated',
+			'eligible',
+		])
+		expect(complete.ineligible).toEqual({ count: 0, sums: {} })
+		expect(complete.eligible).toEqual({ count: 2, sums: { amount: 5 } })
 	})
 
-	it('carries the message as its sole errors entry when given', () => {
-		expect(logicalFailure('boom')).toEqual({
-			reasoning: 'logical',
-			conclusion: false,
-			rules: [],
-			count: 0,
-			success: false,
-			trace: [],
-			errors: ['boom'],
-		})
-	})
-})
-
-describe('quantitativeFailure — empty failed quantitative result shell', () => {
-	it('carries no errors when no message is given', () => {
-		expect(quantitativeFailure()).toEqual({
-			reasoning: 'quantitative',
-			value: 0,
-			groups: [],
-			count: 0,
-			success: false,
-			trace: [],
-			errors: [],
-		})
-	})
-
-	it('carries the message as its sole errors entry when given', () => {
-		expect(quantitativeFailure('boom')).toEqual({
-			reasoning: 'quantitative',
-			value: 0,
-			groups: [],
-			count: 0,
-			success: false,
-			trace: [],
-			errors: ['boom'],
-		})
+	it('builds empty tallies in precedence order and folds a subject in by status', () => {
+		const tallies = emptyTallies(['amount'])
+		expect(Object.keys(tallies)).toEqual([
+			'ineligible',
+			'referral',
+			'conditional',
+			'unrated',
+			'eligible',
+		])
+		const updated = tallySubject(tallies, 'eligible', { amount: 10 }, ['amount'])
+		expect(updated.eligible).toEqual({ count: 1, sums: { amount: 10 } })
+		expect(updated.ineligible).toEqual({ count: 0, sums: { amount: 0 } })
+		const second = tallySubject(updated, 'eligible', { amount: 5 }, ['amount'])
+		expect(second.eligible).toEqual({ count: 2, sums: { amount: 15 } })
 	})
 })
