@@ -136,6 +136,8 @@ describe('Rater — result shape', () => {
 			'completeTallies',
 			'Program',
 			'ProgramManager',
+			'premiseCheck',
+			'checkPremises',
 		]
 		for (const name of removed) {
 			expect(Object.hasOwn(core, name)).toBe(false)
@@ -343,7 +345,7 @@ describe('Rater — events', () => {
 })
 
 describe('Rater — labels', () => {
-	it('threads the labels option into a resolved Premise.label', () => {
+	it('threads the labels option into a resolved Evidence.label', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
@@ -355,9 +357,9 @@ describe('Rater — labels', () => {
 		)
 		const rater = createRater({ labels: { age: 'Age' } })
 		const result = rater.rate([line], createSubject({ age: 25 }))
-		const premise = result.lines[0]?.worksheet.groups[0]?.factors[0]?.premises[0]
-		if (premise === undefined) throw new Error('expected a premise')
-		expect(premise.label).toBe('Age')
+		const evidence = result.lines[0]?.worksheet.groups[0]?.factors[0]?.evidence[0]
+		if (evidence === undefined) throw new Error('expected an evidence row')
+		expect(evidence.label).toBe('Age')
 		rater.destroy()
 	})
 })
@@ -388,14 +390,21 @@ describe('Rater — defensive engine contract', () => {
 		rater.destroy()
 	})
 
-	it('an engine result missing the errors array makes rate throw a non-RaterError', () => {
+	it('tolerates an engine result missing the errors array via the defensive fallback', () => {
 		const stub = invokeRaw<ReturnType<typeof createStubEngine>>(undefined, createStubEngine, [
 			{ reasoning: 'logical' },
 		])
 		const rater = createRater({ engine: stub })
-		const error = captureError(() => rater.rate([createLine('a', 10)], createSubject()))
-		expect(error).toBeDefined()
-		expect(isRaterError(error)).toBe(false)
+		const result = rater.rate([createLine('a', 10)], createSubject())
+		const line = result.lines[0]
+		if (line === undefined) throw new Error('expected a line result')
+		expect(line.success).toBe(false)
+		expect(Object.hasOwn(line, 'amount')).toBe(false)
+		expect(
+			line.worksheet.errors.some((message) => message.includes('Expected quantitative result')),
+		).toBe(true)
+		expect(result.success).toBe(false)
+		expect(Object.hasOwn(result, 'total')).toBe(false)
 		rater.destroy()
 	})
 })

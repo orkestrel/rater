@@ -16,7 +16,7 @@ import type {
 	TotalHandler,
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
-import { arrayOf } from '@orkestrel/contract'
+import { arrayOf, isArray } from '@orkestrel/contract'
 import {
 	buildErrorResult,
 	createQuantitativeReasoner,
@@ -117,7 +117,9 @@ export class Rater implements RaterInterface {
 	// Narrows the engine's tagged ReasonResult union down to a QuantitativeResult
 	// for a definition the engine is guaranteed (by dispatch-by-reasoning, given
 	// only the quantitative reasoner is ever registered) to resolve as such — a
-	// defensive, total fallback rather than an assertion.
+	// defensive, total fallback rather than an assertion. A nonconforming
+	// injected engine result missing (or with a non-array) `errors` contributes
+	// no errors from that side rather than throwing.
 	#reasonQuantitative(subject: Subject, definition: QuantitativeDefinition): QuantitativeResult {
 		const result = this.#engine.reason(subject, definition)
 		if (result.reasoning === 'quantitative') return result
@@ -125,7 +127,7 @@ export class Rater implements RaterInterface {
 			definition,
 			`Expected quantitative result, got ${result.reasoning}`,
 		)
-		const errors = [...result.errors, ...failure.errors]
+		const errors = [...(isArray<string>(result.errors) ? result.errors : []), ...failure.errors]
 		if (failure.reasoning === 'quantitative') return { ...failure, errors }
 		return {
 			reasoning: 'quantitative',

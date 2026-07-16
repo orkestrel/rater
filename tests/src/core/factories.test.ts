@@ -47,10 +47,10 @@ describe('factories — createRater', () => {
 		const result = rater.rate([line], createSubject())
 
 		expect(result.total).toBe(999)
-		const premise = result.lines[0].worksheet.groups[0].factors
-			.flatMap((factor) => factor.premises)
+		const evidence = result.lines[0].worksheet.groups[0].factors
+			.flatMap((factor) => factor.evidence)
 			.find((entry) => entry.field === 'seats')
-		expect(premise?.label).toBe('Seat Count')
+		expect(evidence?.label).toBe('Seat Count')
 		expect(recorder.count).toBe(1)
 		expect(recorder.calls[0][1]).toBe(result)
 

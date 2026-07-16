@@ -1,8 +1,8 @@
 import { check, factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
 import {
-	checkPremises,
+	checkEvidence,
+	evidenceCheck,
 	lineDefinition,
-	premiseCheck,
 	ratedLine,
 	resultsWorksheet,
 	sumAmounts,
@@ -21,38 +21,43 @@ import {
 	createSubject,
 } from '../../setup.js'
 
-describe('helpers — premiseCheck and checkPremises', () => {
-	it('builds one premise from a check, applying a label when provided', () => {
+describe('helpers — evidenceCheck and checkEvidence', () => {
+	it('builds one evidence row from a check, applying a label when provided', () => {
 		const entry = check('age', 'above', 18)
-		expect(premiseCheck(entry, 25, true)).toEqual({
+		expect(evidenceCheck(entry, 25, true)).toEqual({
 			field: 'age',
 			comparison: 'above',
 			expected: 18,
 			actual: 25,
 			met: true,
 		})
-		expect(premiseCheck(entry, 25, true, { age: 'Age' }).label).toBe('Age')
+		expect(evidenceCheck(entry, 25, true, { age: 'Age' }).label).toBe('Age')
 	})
 
 	it('omits met when undefined and label when unmapped', () => {
 		const entry = check('age', 'above', 18)
-		const premise = premiseCheck(entry, undefined, undefined)
-		expect(premise).toEqual({ field: 'age', comparison: 'above', expected: 18, actual: undefined })
-		expect('met' in premise).toBe(false)
-		expect('label' in premise).toBe(false)
+		const evidence = evidenceCheck(entry, undefined, undefined)
+		expect(evidence).toEqual({
+			field: 'age',
+			comparison: 'above',
+			expected: 18,
+			actual: undefined,
+		})
+		expect('met' in evidence).toBe(false)
+		expect('label' in evidence).toBe(false)
 	})
 
 	it('joins checks and results by index, tolerating a shorter results list', () => {
 		const checks = [check('age', 'above', 18), check('state', 'equals', 'CA')]
 		const results = [{ field: 'age', met: true, actual: 25 }]
-		const premises = checkPremises(checks, results)
-		expect(premises).toHaveLength(2)
-		expect(premises[0]?.met).toBe(true)
-		expect(premises[1]?.met).toBeUndefined()
+		const evidence = checkEvidence(checks, results)
+		expect(evidence).toHaveLength(2)
+		expect(evidence[0]?.met).toBe(true)
+		expect(evidence[1]?.met).toBeUndefined()
 	})
 
 	it('returns an empty list for absent checks', () => {
-		expect(checkPremises(undefined, undefined)).toEqual([])
+		expect(checkEvidence(undefined, undefined)).toEqual([])
 	})
 })
 
@@ -79,7 +84,7 @@ describe('helpers — worksheet joins', () => {
 		engine.destroy()
 	})
 
-	it('threads labels into a joined factor premise', () => {
+	it('threads labels into a joined factor evidence row', () => {
 		const engine = createEngine()
 		const definition = createQuoteRate()
 		const result = engine.reason(createSubject({ seats: 10 }), definition)
@@ -88,7 +93,7 @@ describe('helpers — worksheet joins', () => {
 		const factor = group?.factors[1]
 		if (factor === undefined) throw new Error('expected a factor')
 		const joined = worksheetFactor(factor, result.groups[0]?.factors ?? [], { seats: 'Seats' })
-		expect(joined.premises[0]?.label).toBe('Seats')
+		expect(joined.evidence[0]?.label).toBe('Seats')
 		engine.destroy()
 	})
 
@@ -100,7 +105,7 @@ describe('helpers — worksheet joins', () => {
 		expect(joined.factors).toEqual([])
 	})
 
-	it('defaults a factor with no matching result, still building premises from authored checks', () => {
+	it('defaults a factor with no matching result, still building evidence from authored checks', () => {
 		const definition = createQuoteRate()
 		const group = definition.groups[0]
 		const factor = group?.factors[1]
@@ -108,8 +113,8 @@ describe('helpers — worksheet joins', () => {
 		const joined = worksheetFactor(factor, [])
 		expect(joined.applied).toBe(false)
 		expect('value' in joined).toBe(false)
-		expect(joined.premises).toHaveLength(1)
-		expect(joined.premises[0]?.field).toBe('seats')
+		expect(joined.evidence).toHaveLength(1)
+		expect(joined.evidence[0]?.field).toBe('seats')
 	})
 })
 

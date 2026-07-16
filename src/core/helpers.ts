@@ -8,9 +8,9 @@ import type {
 	QuantitativeResult,
 } from '@orkestrel/reason'
 import type {
+	Evidence,
 	LineDefinition,
 	LineResult,
-	Premise,
 	Stage,
 	Step,
 	Worksheet,
@@ -20,29 +20,29 @@ import type {
 import { formatField } from '@orkestrel/reason'
 
 /**
- * Build a {@link Premise} from an evaluated {@link Check}.
+ * Build an {@link Evidence} row from an evaluated {@link Check}.
  *
  * @param check - The authored check
  * @param actual - The resolved subject value
  * @param met - Whether the check was met (absent when not yet evaluated)
  * @param labels - Optional field-to-label overrides, keyed by dot-joined field
- * @returns A fresh premise
+ * @returns A fresh evidence row
  *
  * @example
  * ```ts
  * import { check } from '@orkestrel/reason'
- * import { premiseCheck } from '@orkestrel/rater'
+ * import { evidenceCheck } from '@orkestrel/rater'
  *
  * const entry = check('age', 'above', 18)
- * premiseCheck(entry, 25, true) // { field: 'age', comparison: 'above', expected: 18, actual: 25, met: true }
+ * evidenceCheck(entry, 25, true) // { field: 'age', comparison: 'above', expected: 18, actual: 25, met: true }
  * ```
  */
-export function premiseCheck(
+export function evidenceCheck(
 	check: Check,
 	actual: unknown,
 	met: boolean | undefined,
 	labels?: Readonly<Record<string, string>>,
-): Premise {
+): Evidence {
 	const field = formatField(check.field)
 	return {
 		field: check.field,
@@ -55,31 +55,31 @@ export function premiseCheck(
 }
 
 /**
- * Build premises from a quantitative factor's authored checks and evaluated
- * check results.
+ * Build evidence rows from a quantitative factor's authored checks and
+ * evaluated check results.
  *
  * @param checks - The factor's authored checks
  * @param results - The corresponding {@link CheckResult}s, in the same order
  * @param labels - Optional field-to-label overrides, keyed by dot-joined field
- * @returns A fresh list of premises, one per authored check
+ * @returns A fresh list of evidence rows, one per authored check
  *
  * @example
  * ```ts
  * import { check } from '@orkestrel/reason'
- * import { checkPremises } from '@orkestrel/rater'
+ * import { checkEvidence } from '@orkestrel/rater'
  *
  * const checks = [check('age', 'above', 18)]
- * checkPremises(checks, [{ field: 'age', met: true, actual: 25 }])
+ * checkEvidence(checks, [{ field: 'age', met: true, actual: 25 }])
  * ```
  */
-export function checkPremises(
+export function checkEvidence(
 	checks: readonly Check[] | undefined,
 	results: readonly CheckResult[] | undefined,
 	labels?: Readonly<Record<string, string>>,
-): readonly Premise[] {
+): readonly Evidence[] {
 	return (checks ?? []).map((check, index) => {
 		const result = results?.[index]
-		return premiseCheck(check, result?.actual, result?.met, labels)
+		return evidenceCheck(check, result?.actual, result?.met, labels)
 	})
 }
 
@@ -112,7 +112,7 @@ export function worksheetFactor(
 		...(definition.description === undefined ? {} : { description: definition.description }),
 		applied: result?.applied ?? false,
 		...(result?.value === undefined ? {} : { value: result.value }),
-		premises: checkPremises(definition.checks, result?.checks, labels),
+		evidence: checkEvidence(definition.checks, result?.checks, labels),
 	}
 }
 

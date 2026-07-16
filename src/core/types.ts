@@ -49,7 +49,7 @@ export interface RatingDefinition {
 }
 
 /** A checked-evidence row rendered into a display-neutral sentence. */
-export interface Premise {
+export interface Evidence {
 	readonly field?: FieldPath
 	readonly label?: string
 	readonly comparison?: Comparison
@@ -65,7 +65,7 @@ export interface WorksheetFactor {
 	readonly description?: string
 	readonly applied: boolean
 	readonly value?: number
-	readonly premises: readonly Premise[]
+	readonly evidence: readonly Evidence[]
 }
 
 /** A resolved quantitative group, joined to its authored metadata. */
@@ -150,7 +150,7 @@ export type RaterEventMap = {
  * and OWNS its own quantitative-only engine (`bail: false`), destroying it on
  * `destroy()`. `total` — a {@link TotalHandler} overriding the default
  * {@link sumAmounts} projection. `labels` — field-to-label display overrides
- * threaded into every resolved {@link Premise}.
+ * threaded into every resolved {@link Evidence}.
  */
 export interface RaterOptions {
 	readonly on?: EmitterHooks<RaterEventMap>
