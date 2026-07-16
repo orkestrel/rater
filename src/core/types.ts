@@ -48,7 +48,7 @@ export interface RatingDefinition {
 	readonly metadata?: JSONValue
 }
 
-/** A shared checked-evidence row rendered into a display-neutral sentence. */
+/** A checked-evidence row rendered into a display-neutral sentence. */
 export interface Premise {
 	readonly field?: FieldPath
 	readonly label?: string

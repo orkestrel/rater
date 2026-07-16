@@ -2,8 +2,18 @@
 // Vitest project (`setupFiles[0]`). Keep this file free of `node:*` and of
 // `document` / `window` / Vue.
 
-import type { QuantitativeDefinition, ReasonInterface, Subject } from '@orkestrel/reason'
+import type {
+	Definition,
+	QuantitativeDefinition,
+	ReasonEventMap,
+	ReasonerInterface,
+	ReasonInterface,
+	ReasonResult,
+	ReasonValidationResult,
+	Subject,
+} from '@orkestrel/reason'
 import type { LineDefinition, LineResult, TotalHandler, Worksheet } from '@src/core'
+import { createEmitter } from '@orkestrel/emitter'
 import { isArray, isRecord } from '@orkestrel/contract'
 import {
 	check,
@@ -179,6 +189,30 @@ export function createEngine(options?: { readonly logical?: boolean }): ReasonIn
 			: [createQuantitativeReasoner()],
 		bail: false,
 	})
+}
+
+/**
+ * A minimal, hostile-input-friendly {@link ReasonInterface} stub whose
+ * `reason()` always resolves to the caller-supplied `result` — for exercising
+ * `Rater`'s defensive handling of an untrusted injected engine. Every other
+ * member is a minimal conforming no-op.
+ */
+export function createStubEngine<T extends ReasonResult>(result: T): ReasonInterface {
+	function reason(subjects: readonly Subject[], definition: Definition): readonly ReasonResult[]
+	function reason(subject: Subject, definition: Definition): ReasonResult
+	function reason(input: Subject | readonly Subject[]): ReasonResult | readonly ReasonResult[] {
+		return isArray(input) ? [result] : result
+	}
+	return {
+		emitter: createEmitter<ReasonEventMap>(),
+		reason,
+		register: (): void => {},
+		reasoner: (): ReasonerInterface | undefined => undefined,
+		reasoners: (): readonly ReasonerInterface[] => [],
+		supports: (): boolean => false,
+		validate: (): ReasonValidationResult => ({ valid: true, errors: [], warnings: [] }),
+		destroy: (): void => {},
+	}
 }
 
 /** A minimal, type-shaped {@link Worksheet} stub — for line results that never touch the real engine. */

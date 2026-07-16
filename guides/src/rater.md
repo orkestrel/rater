@@ -65,7 +65,7 @@ lines that succeeded.
 | `TotalHandler`     | type      | `(lines: readonly LineResult[]) => number \| undefined` — a pure total port over resolved lines.                                                                |
 | `LineDefinition`   | interface | `{ id, name, description?, rate, metadata? }` — one rateable line: a quantitative definition joined to display metadata.                                        |
 | `RatingDefinition` | interface | `{ id, name, description?, lines, metadata? }` — a pure authored rating: a named, ordered set of lines.                                                         |
-| `Premise`          | interface | `{ field?, label?, comparison?, expected?, actual?, met? }` — a shared checked-evidence row rendered into a display-neutral sentence.                           |
+| `Premise`          | interface | `{ field?, label?, comparison?, expected?, actual?, met? }` — a checked-evidence row rendered into a display-neutral sentence.                                  |
 | `WorksheetFactor`  | interface | `{ id, name?, description?, applied, value?, premises }` — a resolved quantitative factor joined to its authored metadata.                                      |
 | `WorksheetGroup`   | interface | `{ id, name?, description?, applied, value, factors }` — a resolved quantitative group joined to its authored metadata.                                         |
 | `Step`             | interface | `{ stage, id?, name?, value, expression? }` — a display-neutral worksheet derivation step.                                                                      |

@@ -16,8 +16,13 @@ import type {
 	TotalHandler,
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
-import { arrayOf, isRecord } from '@orkestrel/contract'
-import { buildErrorResult, createQuantitativeReasoner, createReason } from '@orkestrel/reason'
+import { arrayOf } from '@orkestrel/contract'
+import {
+	buildErrorResult,
+	createQuantitativeReasoner,
+	createReason,
+	isSubject,
+} from '@orkestrel/reason'
 import { RaterError } from './errors.js'
 import { ratedLine, sumAmounts } from './helpers.js'
 import { isLineDefinition, isRatingDefinition } from './validators.js'
@@ -75,7 +80,7 @@ export class Rater implements RaterInterface {
 	rate(input: readonly LineDefinition[] | RatingDefinition, subject: Subject): RatingResult {
 		this.#ensureAlive()
 		const lines = this.#normalize(input)
-		if (!isRecord(subject)) throw new RaterError('MISMATCH', 'Subject must be a record')
+		if (!isSubject(subject)) throw new RaterError('MISMATCH', 'Subject must be a record')
 		const results = lines.map((line) => this.#rateLine(line, subject))
 		const total = (this.#total ?? sumAmounts)(results)
 		const success = results.every((entry) => entry.success)

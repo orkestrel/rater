@@ -1,4 +1,4 @@
-import { check } from '@orkestrel/reason'
+import { check, factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
 import {
 	checkPremises,
 	lineDefinition,
@@ -91,6 +91,26 @@ describe('helpers — worksheet joins', () => {
 		expect(joined.premises[0]?.label).toBe('Seats')
 		engine.destroy()
 	})
+
+	it('defaults a group with no matching result', () => {
+		const group = factorGroup('empty', 'sum', [])
+		const joined = worksheetGroup(group, [])
+		expect(joined.applied).toBe(false)
+		expect(joined.value).toBe(0)
+		expect(joined.factors).toEqual([])
+	})
+
+	it('defaults a factor with no matching result, still building premises from authored checks', () => {
+		const definition = createQuoteRate()
+		const group = definition.groups[0]
+		const factor = group?.factors[1]
+		if (factor === undefined) throw new Error('expected a factor')
+		const joined = worksheetFactor(factor, [])
+		expect(joined.applied).toBe(false)
+		expect('value' in joined).toBe(false)
+		expect(joined.premises).toHaveLength(1)
+		expect(joined.premises[0]?.field).toBe('seats')
+	})
 })
 
 describe('helpers — worksheetStep and worksheetSteps', () => {
@@ -115,6 +135,25 @@ describe('helpers — worksheetStep and worksheetSteps', () => {
 		expect(steps.at(-1)).toMatchObject({ stage: 'total', value: 110 })
 		engine.destroy()
 	})
+
+	it('emits factor rows only for applied, valued factors', () => {
+		const definition = quantitativeDefinition('quote', 'Quote', [
+			factorGroup('charge', 'sum', [staticFactor('base', 100)]),
+		])
+		const group = worksheetGroup(definition.groups[0] ?? factorGroup('charge', 'sum', []), [])
+		const result = {
+			reasoning: 'quantitative' as const,
+			value: 0,
+			groups: [],
+			count: 0,
+			success: false,
+			trace: [],
+			errors: [],
+		}
+		const steps = worksheetSteps(definition, result, [group])
+		expect(steps.some((step) => step.stage === 'factor')).toBe(false)
+		expect(steps.map((step) => step.stage)).toEqual(['group', 'total'])
+	})
 })
 
 describe('helpers — resultsWorksheet', () => {
@@ -130,6 +169,27 @@ describe('helpers — resultsWorksheet', () => {
 		expect(worksheet.trace).toEqual(result.trace)
 		expect(worksheet.errors).toEqual(result.errors)
 		expect(worksheet.success).toBe(result.success)
+		engine.destroy()
+	})
+
+	it('surfaces precision only when the definition sets it', () => {
+		const engine = createEngine()
+		const withPrecision = quantitativeDefinition(
+			'quote',
+			'Quote',
+			[factorGroup('charge', 'sum', [staticFactor('base', 100)])],
+			{ precision: 2 },
+		)
+		const withoutPrecision = quantitativeDefinition('quote', 'Quote', [
+			factorGroup('charge', 'sum', [staticFactor('base', 100)]),
+		])
+		const withResult = engine.reason(createSubject(), withPrecision)
+		const withoutResult = engine.reason(createSubject(), withoutPrecision)
+		if (withResult.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
+		if (withoutResult.reasoning !== 'quantitative')
+			throw new Error('expected a quantitative result')
+		expect('precision' in resultsWorksheet(withPrecision, withResult)).toBe(true)
+		expect('precision' in resultsWorksheet(withoutPrecision, withoutResult)).toBe(false)
 		engine.destroy()
 	})
 })
@@ -180,5 +240,15 @@ describe('helpers — sumAmounts', () => {
 	it('poisons the sum to NaN when any line carries a NaN amount', () => {
 		const lines = [createLineResult('a', 10), createLineResult('b', Number.NaN)]
 		expect(sumAmounts(lines)).toBeNaN()
+	})
+
+	// Helper-level pin only — opposing infinities never arise on the real rating
+	// path; this pins the actual arithmetic (Infinity + -Infinity = NaN).
+	it('poisons the sum to NaN when opposing infinities are summed', () => {
+		const lines = [
+			createLineResult('a', Number.POSITIVE_INFINITY),
+			createLineResult('b', Number.NEGATIVE_INFINITY),
+		]
+		expect(Number.isNaN(sumAmounts(lines))).toBe(true)
 	})
 })

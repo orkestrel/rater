@@ -35,6 +35,13 @@ describe('validators — isStage', () => {
 			expect(isStage(input)).toBe(false)
 		}
 	})
+
+	it('is exact-literal strict — near-miss casing and whitespace are rejected', () => {
+		for (const input of ['Factor', 'GROUP', ' group ']) {
+			expect(() => isStage(input)).not.toThrow()
+			expect(isStage(input)).toBe(false)
+		}
+	})
 })
 
 describe('validators — isLineDefinition', () => {
@@ -71,6 +78,11 @@ describe('validators — isLineDefinition', () => {
 
 	it('rejects an extra key on an otherwise valid record', () => {
 		expect(isLineDefinition({ id: 'line', name: 'Line', rate, bogus: true })).toBe(false)
+	})
+
+	it('rejects a rate that is object-shaped but not a valid quantitative definition', () => {
+		const badRate = { reasoning: 'quantitative', id: 'x', name: 'x', groups: 'nope' }
+		expect(isLineDefinition({ id: 'x', name: 'X', rate: badRate })).toBe(false)
 	})
 
 	it('rejects cyclic metadata without throwing', () => {
@@ -133,6 +145,11 @@ describe('validators — isRatingDefinition', () => {
 
 	it('rejects an extra key on an otherwise valid record', () => {
 		expect(isRatingDefinition({ id: 'r', name: 'R', lines: [line], bogus: true })).toBe(false)
+	})
+
+	it('accepts duplicate line ids', () => {
+		const duplicate = lineDefinition('line', 'Line 2', createLine('line', 20).rate)
+		expect(isRatingDefinition(ratingDefinition('r', 'R', [line, duplicate]))).toBe(true)
 	})
 
 	it('rejects adversarial inputs without throwing', () => {

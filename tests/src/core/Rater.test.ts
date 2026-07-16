@@ -1,6 +1,13 @@
-import type { ReasonEventMap } from '@orkestrel/reason'
+import type { LogicalResult, ReasonEventMap } from '@orkestrel/reason'
 import type { RaterEventMap } from '@src/core'
-import { check, factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
+import { isRecord } from '@orkestrel/contract'
+import {
+	check,
+	factorGroup,
+	fieldFactor,
+	quantitativeDefinition,
+	staticFactor,
+} from '@orkestrel/reason'
 import * as core from '@src/core'
 import { createRater, isRaterError, lineDefinition, ratingDefinition } from '@src/core'
 import { describe, expect, it } from 'vitest'
@@ -11,6 +18,7 @@ import {
 	createLine,
 	createLookupFailureLine,
 	createRecorder,
+	createStubEngine,
 	createSubject,
 	createTotalRecorder,
 	deepFreeze,
@@ -350,6 +358,289 @@ describe('Rater — labels', () => {
 		const premise = result.lines[0]?.worksheet.groups[0]?.factors[0]?.premises[0]
 		if (premise === undefined) throw new Error('expected a premise')
 		expect(premise.label).toBe('Age')
+		rater.destroy()
+	})
+})
+
+describe('Rater — defensive engine contract', () => {
+	it('routes a non-quantitative engine result through the defensive fallback', () => {
+		const stub = createStubEngine<LogicalResult>({
+			reasoning: 'logical',
+			conclusion: false,
+			rules: [],
+			count: 0,
+			success: false,
+			trace: [],
+			errors: ['e'],
+		})
+		const rater = createRater({ engine: stub })
+		const result = rater.rate([createLine('a', 10)], createSubject())
+		const line = result.lines[0]
+		if (line === undefined) throw new Error('expected a line result')
+		expect(line.success).toBe(false)
+		expect(Object.hasOwn(line, 'amount')).toBe(false)
+		expect(line.worksheet.errors).toContain('e')
+		expect(
+			line.worksheet.errors.some((message) => message.includes('Expected quantitative result')),
+		).toBe(true)
+		expect(result.success).toBe(false)
+		expect(Object.hasOwn(result, 'total')).toBe(false)
+		rater.destroy()
+	})
+
+	it('an engine result missing the errors array makes rate throw a non-RaterError', () => {
+		const stub = invokeRaw<ReturnType<typeof createStubEngine>>(undefined, createStubEngine, [
+			{ reasoning: 'logical' },
+		])
+		const rater = createRater({ engine: stub })
+		const error = captureError(() => rater.rate([createLine('a', 10)], createSubject()))
+		expect(error).toBeDefined()
+		expect(isRaterError(error)).toBe(false)
+		rater.destroy()
+	})
+})
+
+describe('Rater — finite guarantees', () => {
+	it('a successful rating never yields a non-finite amount', () => {
+		const line = lineDefinition(
+			'line',
+			'Line',
+			quantitativeDefinition('line', 'Line', [
+				factorGroup('g', 'sum', [
+					staticFactor('a', Number.MAX_VALUE),
+					staticFactor('b', Number.MAX_VALUE),
+				]),
+			]),
+		)
+		const rater = createRater()
+		const result = rater.rate([line], createSubject())
+		const lineResult = result.lines[0]
+		if (lineResult === undefined) throw new Error('expected a line result')
+		expect(lineResult.success).toBe(false)
+		expect(Object.hasOwn(lineResult, 'amount')).toBe(false)
+		expect(lineResult.worksheet.value).toBe(Number.POSITIVE_INFINITY)
+		rater.destroy()
+	})
+
+	it('NaN is visible in the worksheet but never in an amount', () => {
+		const line = lineDefinition(
+			'line',
+			'Line',
+			quantitativeDefinition('line', 'Line', [factorGroup('g', 'sum', [])], {
+				aggregation: 'minimum',
+			}),
+		)
+		const rater = createRater()
+		const result = rater.rate([line], createSubject())
+		const lineResult = result.lines[0]
+		if (lineResult === undefined) throw new Error('expected a line result')
+		expect(Number.isNaN(lineResult.worksheet.value)).toBe(true)
+		expect(lineResult.success).toBe(false)
+		expect(Object.hasOwn(lineResult, 'amount')).toBe(false)
+		expect(
+			lineResult.worksheet.errors.some((message) => message.toLowerCase().includes('nan')),
+		).toBe(true)
+		rater.destroy()
+	})
+
+	it('the total overflows to Infinity across many finite successful lines', () => {
+		// precision: 0 keeps roundTo's Math.round(value * 10 ** 0) finite for
+		// MAX_VALUE, so each line succeeds and the overflow happens only when
+		// rater sums the two MAX_VALUE amounts together.
+		const lines = [
+			lineDefinition(
+				'a',
+				'A',
+				quantitativeDefinition(
+					'a',
+					'A',
+					[factorGroup('g', 'sum', [staticFactor('a', Number.MAX_VALUE)])],
+					{ precision: 0 },
+				),
+			),
+			lineDefinition(
+				'b',
+				'B',
+				quantitativeDefinition(
+					'b',
+					'B',
+					[factorGroup('g', 'sum', [staticFactor('b', Number.MAX_VALUE)])],
+					{ precision: 0 },
+				),
+			),
+		]
+		const rater = createRater()
+		const result = rater.rate(lines, createSubject())
+		for (const lineResult of result.lines) {
+			expect(lineResult.success).toBe(true)
+			expect(lineResult.amount).toBe(Number.MAX_VALUE)
+		}
+		expect(result.success).toBe(true)
+		expect(result.total).toBe(Number.POSITIVE_INFINITY)
+		rater.destroy()
+	})
+})
+
+describe('Rater — duplicates and scale', () => {
+	it('duplicate line ids produce duplicate results and double-count the total', () => {
+		const lines = [createLine('x', 10), createLine('x', 10)]
+		const rater = createRater()
+		const result = rater.rate(lines, createSubject())
+		expect(result.lines.length).toBe(2)
+		expect(result.lines.every((line) => line.id === 'x')).toBe(true)
+		expect(result.total).toBe(20)
+		rater.destroy()
+	})
+
+	it('rates thousands of identical lines deterministically', () => {
+		const lines = Array.from({ length: 5000 }, (_unused, index) => createLine(`line-${index}`, 2))
+		const rater = createRater()
+		const first = rater.rate(lines, createSubject())
+		expect(first.lines.length).toBe(5000)
+		expect(first.total).toBe(10000)
+		const second = rater.rate(lines, createSubject())
+		expect(second).toEqual(first)
+		rater.destroy()
+	})
+})
+
+describe('Rater — error isolation', () => {
+	it('isolates a throwing rate listener via the error handler', () => {
+		const recorder = createRecorder<[error: unknown, event: string]>()
+		const rater = createRater({
+			on: {
+				rate: (): void => {
+					throw new Error('boom')
+				},
+			},
+			error: recorder.handler,
+		})
+		expect(() => rater.rate([createLine('a', 10)], createSubject())).not.toThrow()
+		expect(recorder.count).toBe(1)
+		expect(recorder.calls[0]?.[1]).toBe('rate')
+		rater.destroy()
+	})
+})
+
+describe('Rater — hostile subject', () => {
+	it('(pin) a subject with a __proto__ key neither pollutes nor breaks rating', () => {
+		const subject: unknown = JSON.parse('{"__proto__": {"polluted": true}, "amount": 5}')
+		if (!isRecord(subject)) throw new Error('expected a record subject')
+		const line = lineDefinition(
+			'line',
+			'Line',
+			quantitativeDefinition('line', 'Line', [
+				factorGroup('g', 'sum', [fieldFactor('amount', 'amount')]),
+			]),
+		)
+		const rater = createRater()
+		const result = rater.rate([line], subject)
+		expect(result.success).toBe(true)
+		expect(result.lines[0]?.amount).toBe(5)
+		expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false)
+		rater.destroy()
+	})
+})
+
+describe('Rater — aggregation edges', () => {
+	it('an empty-groups definition rates to amount 0, success true', () => {
+		const line = lineDefinition('line', 'Line', quantitativeDefinition('line', 'Line', []))
+		const rater = createRater()
+		const result = rater.rate([line], createSubject())
+		const lineResult = result.lines[0]
+		if (lineResult === undefined) throw new Error('expected a line result')
+		expect(lineResult.success).toBe(true)
+		expect(lineResult.amount).toBe(0)
+		expect(result.total).toBe(0)
+		rater.destroy()
+	})
+
+	it('zero-total-weight average does not blow up', () => {
+		const line = lineDefinition(
+			'line',
+			'Line',
+			quantitativeDefinition('line', 'Line', [
+				factorGroup('g', 'average', [
+					staticFactor('a', 5, { weight: 0 }),
+					staticFactor('b', 10, { weight: 0 }),
+				]),
+			]),
+		)
+		const rater = createRater()
+		const result = rater.rate([line], createSubject())
+		const lineResult = result.lines[0]
+		if (lineResult === undefined) throw new Error('expected a line result')
+		expect(lineResult.worksheet.groups[0]?.value).toBe(0)
+		expect(lineResult.amount).toBe(0)
+		expect(lineResult.success).toBe(true)
+		rater.destroy()
+	})
+})
+
+describe('Rater — errors table', () => {
+	it('throws DEFINITION for a rating-shaped input carrying one invalid line', () => {
+		const rater = createRater()
+		const error = captureError(() =>
+			invokeRaw(rater, rater.rate, [
+				{ id: 'r', name: 'R', lines: [{ id: 'bad' }] },
+				createSubject(),
+			]),
+		)
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DEFINITION')
+		rater.destroy()
+	})
+
+	it.each([null, undefined, 42, 's', []])(
+		'throws MISMATCH for the non-record subject %p',
+		(subject) => {
+			const rater = createRater()
+			const error = captureError(() => invokeRaw(rater, rater.rate, [[], subject]))
+			if (!isRaterError(error)) throw new Error('expected a RaterError')
+			expect(error.code).toBe('MISMATCH')
+			rater.destroy()
+		},
+	)
+})
+
+describe('Rater — precision', () => {
+	it('precision override rounds the amount and surfaces worksheet.precision', () => {
+		const line = lineDefinition(
+			'line',
+			'Line',
+			quantitativeDefinition(
+				'line',
+				'Line',
+				[factorGroup('g', 'sum', [staticFactor('a', 0.1), staticFactor('b', 0.2)])],
+				{ precision: 2 },
+			),
+		)
+		const rater = createRater()
+		const result = rater.rate([line], createSubject())
+		const lineResult = result.lines[0]
+		if (lineResult === undefined) throw new Error('expected a line result')
+		expect(lineResult.amount).toBe(0.3)
+		expect(lineResult.worksheet.precision).toBe(2)
+		rater.destroy()
+	})
+
+	it('(pin) definition rounding kills float drift while the group value keeps it', () => {
+		const line = lineDefinition(
+			'line',
+			'Line',
+			quantitativeDefinition(
+				'line',
+				'Line',
+				[factorGroup('g', 'sum', [staticFactor('a', 0.1), staticFactor('b', 0.2)])],
+				{ precision: 2 },
+			),
+		)
+		const rater = createRater()
+		const result = rater.rate([line], createSubject())
+		const lineResult = result.lines[0]
+		if (lineResult === undefined) throw new Error('expected a line result')
+		expect(lineResult.amount).toBe(0.3)
+		expect(lineResult.worksheet.groups[0]?.value).not.toBe(0.3)
 		rater.destroy()
 	})
 })
