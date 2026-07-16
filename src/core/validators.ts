@@ -1,77 +1,42 @@
 import type { Guard } from '@orkestrel/contract'
-import type {
-	AggregateDefinition,
-	Decision,
-	Effect,
-	Eligibility,
-	LineDefinition,
-	Notice,
-	PassDefinition,
-	ProgramDefinition,
-	Ruling,
-	Stage,
-	Status,
-} from './types.js'
-import {
-	arrayOf,
-	isJSONValue,
-	isRecord,
-	isString,
-	literalOf,
-	recordOf,
-	unionOf,
-	whereOf,
-} from '@orkestrel/contract'
-import { isFieldPath, isLogicalDefinition, isQuantitativeDefinition } from '@orkestrel/reason'
+import type { LineDefinition, RatingDefinition, Stage } from './types.js'
+import { arrayOf, isJSONValue, isString, literalOf, recordOf } from '@orkestrel/contract'
+import { isQuantitativeDefinition } from '@orkestrel/reason'
 
-/** Determine whether a value is an {@link Eligibility} literal. */
-export const isEligibility: Guard<Eligibility> = literalOf('eligible', 'ineligible', 'referral')
-
-/** Determine whether a value is a {@link Decision} literal. */
-export const isDecision: Guard<Decision> = literalOf('approved', 'denied', 'submitted')
-
-/** Determine whether a value is a {@link Status} literal. */
-export const isStatus: Guard<Status> = literalOf(
-	'ineligible',
-	'referral',
-	'conditional',
-	'unrated',
-	'eligible',
-)
-
-/** Determine whether a value is an {@link Effect} literal. */
-export const isEffect: Guard<Effect> = literalOf(
-	'restriction',
-	'referral',
-	'condition',
-	'notice',
-	'limit',
-)
-
-/** Determine whether a value is a {@link Stage} literal. */
+/**
+ * Determine whether a value is a {@link Stage} literal.
+ *
+ * @param value - The value to test
+ * @returns `true` when `value` is `'factor'`, `'group'`, or `'total'`
+ *
+ * @example
+ * ```ts
+ * import { isStage } from '@orkestrel/rater'
+ *
+ * isStage('group') // true
+ * isStage('step') // false
+ * ```
+ */
 export const isStage: Guard<Stage> = literalOf('factor', 'group', 'total')
 
-/** Determine whether a value is an exact {@link Ruling} record. */
-export function isRuling(value: unknown): value is Ruling {
-	return recordOf({ effect: isEffect, line: isString, message: isString }, ['line', 'message'])(
-		value,
-	)
-}
-
-/** Determine whether a value is an exact {@link Notice} record. */
-export function isNotice(value: unknown): value is Notice {
-	return recordOf({ id: isString, message: isString, line: isString }, ['line'])(value)
-}
-
-/** Determine whether a value is an exact {@link PassDefinition} record. */
-export function isPassDefinition(value: unknown): value is PassDefinition {
-	return recordOf(
-		{ line: isString, definition: unionOf(isLogicalDefinition, isQuantitativeDefinition) },
-		['line'],
-	)(value)
-}
-
-/** Determine whether a value is an exact {@link LineDefinition} record. */
+/**
+ * Determine whether a value is an exact {@link LineDefinition} record.
+ *
+ * @remarks
+ * Total guard (AGENTS §14): adversarial input (cycles, hostile prototypes)
+ * returns `false`, never throws. The record shape is EXACT — an extra key fails.
+ *
+ * @param value - The value to test
+ * @returns `true` when `value` is a `LineDefinition`
+ *
+ * @example
+ * ```ts
+ * import { quantitativeDefinition } from '@orkestrel/reason'
+ * import { isLineDefinition } from '@orkestrel/rater'
+ *
+ * isLineDefinition({ id: 'base', name: 'Base', rate: quantitativeDefinition('base', 'Base', []) }) // true
+ * ```
+ */
 export function isLineDefinition(value: unknown): value is LineDefinition {
 	return recordOf(
 		{
@@ -85,35 +50,32 @@ export function isLineDefinition(value: unknown): value is LineDefinition {
 	)(value)
 }
 
-/** Determine whether a value is an exact {@link AggregateDefinition} record. */
-export function isAggregateDefinition(value: unknown): value is AggregateDefinition {
-	return recordOf({ fields: arrayOf(isFieldPath), by: isFieldPath, gates: isLogicalDefinition }, [
-		'by',
-		'gates',
-	])(value)
-}
-
-/** Determine whether a value is a rule-id-keyed {@link Ruling} record. */
-export const isRulings: Guard<Readonly<Record<string, Ruling>>> = whereOf(
-	isRecord,
-	(record): record is Readonly<Record<string, Ruling>> => Object.values(record).every(isRuling),
-)
-
-/** Determine whether a value is an exact {@link ProgramDefinition} record. */
-export function isProgramDefinition(value: unknown): value is ProgramDefinition {
+/**
+ * Determine whether a value is an exact {@link RatingDefinition} record.
+ *
+ * @remarks
+ * Total guard (AGENTS §14): adversarial input (cycles, hostile prototypes)
+ * returns `false`, never throws. The record shape is EXACT — an extra key fails.
+ *
+ * @param value - The value to test
+ * @returns `true` when `value` is a `RatingDefinition`
+ *
+ * @example
+ * ```ts
+ * import { isRatingDefinition } from '@orkestrel/rater'
+ *
+ * isRatingDefinition({ id: 'r1', name: 'Rating', lines: [] }) // true
+ * ```
+ */
+export function isRatingDefinition(value: unknown): value is RatingDefinition {
 	return recordOf(
 		{
 			id: isString,
 			name: isString,
 			description: isString,
-			passes: arrayOf(isPassDefinition),
 			lines: arrayOf(isLineDefinition),
-			rulings: isRulings,
-			notices: arrayOf(isNotice),
-			authority: isLogicalDefinition,
-			aggregate: isAggregateDefinition,
 			metadata: isJSONValue,
 		},
-		['description', 'passes', 'rulings', 'notices', 'authority', 'aggregate', 'metadata'],
+		['description', 'metadata'],
 	)(value)
 }

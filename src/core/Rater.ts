@@ -1,293 +1,131 @@
 import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
-	EvaluatorInterface,
-	LogicalDefinition,
-	LogicalResult,
+	QuantitativeDefinition,
+	QuantitativeResult,
 	ReasonInterface,
 	Subject,
 } from '@orkestrel/reason'
 import type {
-	AggregateGroup,
-	AggregateResult,
-	Determination,
-	ProgramInterface,
-	ProgramManagerInterface,
+	LineDefinition,
+	LineResult,
 	RaterEventMap,
 	RaterInterface,
 	RaterOptions,
-	Ruling,
-	SubjectResult,
-	Tally,
+	RatingDefinition,
+	RatingResult,
+	TotalHandler,
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
-import {
-	buildErrorResult,
-	createEvaluator,
-	createLogicalReasoner,
-	createQuantitativeReasoner,
-	createReason,
-} from '@orkestrel/reason'
-import { isRecord } from '@orkestrel/contract'
+import { arrayOf, isRecord } from '@orkestrel/contract'
+import { buildErrorResult, createQuantitativeReasoner, createReason } from '@orkestrel/reason'
 import { RaterError } from './errors.js'
-import {
-	aggregateFields,
-	aggregateGroups,
-	aggregateProjection,
-	aggregateRecord,
-	aggregateSums,
-	assertSubject,
-	emptyTallies,
-	groupFor,
-	rulesToDeterminations,
-	tallySubject,
-} from './helpers.js'
-import { ProgramManager } from './programs/ProgramManager.js'
+import { ratedLine, sumAmounts } from './helpers.js'
+import { isLineDefinition, isRatingDefinition } from './validators.js'
 
 /**
- * The rating orchestrator — owns the shared reasoning engine and an ordered
- * {@link ProgramManager}, and projects results into the rating domain
- * vocabulary.
+ * The rating orchestrator — owns (or receives) the shared quantitative
+ * reasoning engine and projects results into the rating domain vocabulary.
  *
  * @remarks
- * Constructs ONE shared reason engine (quantitative + logical reasoners,
- * `bail: false`) and injects it into every compiled program — Rater performs
- * NO evaluation arithmetic of its own; it only orchestrates and projects. The
- * batch `rate` overload is declared FIRST (AGENTS §9.2) so an array subject
- * resolves to the batch form. `destroy()` tears down the manager, then the
- * engine, then the emitter LAST (AGENTS §13); afterwards every other method
- * throws {@link RaterError} `'DESTROYED'`.
+ * When no `engine` is injected, `Rater` builds and OWNS its own
+ * quantitative-only engine (`bail: false`) — Rater performs NO evaluation
+ * arithmetic of its own; it only orchestrates and projects. The
+ * array-of-lines `rate` overload is declared FIRST (AGENTS §9.2). `destroy()`
+ * destroys an OWNED engine, then the emitter LAST (AGENTS §13); an INJECTED
+ * engine is never destroyed. Afterwards every other method throws
+ * {@link RaterError} `'DESTROYED'`.
+ *
+ * @example
+ * ```ts
+ * import { Rater } from '@orkestrel/rater'
+ *
+ * const rater = new Rater()
+ * rater.rate([], { id: 'subject-1' }) // { lines: [], success: true }
+ * rater.destroy()
+ * ```
  */
 export class Rater implements RaterInterface {
 	readonly #emitter: Emitter<RaterEventMap>
-	readonly #manager: ProgramManager
 	readonly #engine: ReasonInterface
-	readonly #evaluator: EvaluatorInterface
+	readonly #owned: boolean
+	readonly #total: TotalHandler | undefined
+	readonly #labels: Readonly<Record<string, string>> | undefined
 	#destroyed = false
 
 	constructor(options?: RaterOptions) {
 		this.#emitter = new Emitter<RaterEventMap>({ on: options?.on, error: options?.error })
-		this.#engine = createReason({
-			reasoners: [createQuantitativeReasoner(), createLogicalReasoner()],
-			bail: false,
-		})
-		this.#evaluator = createEvaluator()
-		this.#manager = new ProgramManager(this.#engine, {
-			total: options?.total,
-			labels: options?.labels,
-			validate: options?.validate,
-		})
-		for (const definition of options?.programs ?? []) this.#manager.add(definition)
+		if (options?.engine === undefined) {
+			this.#engine = createReason({ reasoners: [createQuantitativeReasoner()], bail: false })
+			this.#owned = true
+		} else {
+			this.#engine = options.engine
+			this.#owned = false
+		}
+		this.#total = options?.total
+		this.#labels = options?.labels
 	}
 
 	get emitter(): EmitterInterface<RaterEventMap> {
 		return this.#emitter
 	}
 
-	get programs(): ProgramManagerInterface {
-		return this.#manager
-	}
-
-	// Array overload first (AGENTS §9.2) so a list resolves to the batch form.
-	rate(subjects: readonly Subject[]): AggregateResult
-	rate(subject: Subject): SubjectResult
-	rate(subject: Subject | readonly Subject[]): SubjectResult | AggregateResult {
+	// Array overload first (AGENTS §9.2) so a plain line list resolves to that form.
+	rate(lines: readonly LineDefinition[], subject: Subject): RatingResult
+	rate(definition: RatingDefinition, subject: Subject): RatingResult
+	rate(input: readonly LineDefinition[] | RatingDefinition, subject: Subject): RatingResult {
 		this.#ensureAlive()
-		if (isRecord(subject)) return this.#rateOne(subject)
-		return this.#rateBatch(subject)
+		const lines = this.#normalize(input)
+		if (!isRecord(subject)) throw new RaterError('MISMATCH', 'Subject must be a record')
+		const results = lines.map((line) => this.#rateLine(line, subject))
+		const total = (this.#total ?? sumAmounts)(results)
+		const success = results.every((entry) => entry.success)
+		const result: RatingResult = {
+			lines: results,
+			...(total === undefined ? {} : { total }),
+			success,
+		}
+		this.#emitter.emit('rate', subject, result)
+		return result
 	}
 
 	destroy(): void {
 		if (this.#destroyed) return
-		this.#manager.destroy()
-		this.#engine.destroy()
 		this.#destroyed = true
+		if (this.#owned) this.#engine.destroy()
 		this.#emitter.destroy()
 	}
 
-	#rateOne(subject: Subject): SubjectResult {
-		assertSubject(subject)
-		const result = this.#subject(subject)
-		this.#emitSubject(result)
-		return result
-	}
-
-	#rateBatch(subjects: readonly Subject[]): AggregateResult {
-		for (const subject of subjects) assertSubject(subject)
-		const programs = this.#manager.programs()
-		const fields = aggregateFields(programs)
-		const sums = aggregateSums(subjects, fields)
-		// Precompute each program's whole-batch sums and groups ONCE. The per-subject
-		// projection pass, the group listing, and the aggregate-determination gates all
-		// reuse these instead of re-summing the whole batch for every subject.
-		const programSums = new Map<string, Readonly<Record<string, number>>>()
-		const programGroups = new Map<string, readonly AggregateGroup[]>()
-		for (const program of programs) {
-			const aggregate = program.definition.aggregate
-			if (aggregate === undefined) continue
-			programSums.set(program.id, aggregateSums(subjects, aggregate.fields))
-			programGroups.set(program.id, aggregateGroups(subjects, aggregate.fields, aggregate.by))
-		}
-		const groups = this.#groups(programs, programGroups)
-		const determinations = this.#aggregateDeterminations(
-			programs,
-			programSums,
-			programGroups,
-			subjects.length,
+	#normalize(input: readonly LineDefinition[] | RatingDefinition): readonly LineDefinition[] {
+		if (arrayOf(isLineDefinition)(input)) return input
+		if (isRatingDefinition(input)) return input.lines
+		throw new RaterError(
+			'DEFINITION',
+			'Rating input must be an array of line definitions or a rating definition',
 		)
-		const subjectsResult = subjects.map((subject) =>
-			this.#subject(
-				subject,
-				this.#projections(subject, programs, programSums, programGroups, subjects.length),
-			),
-		)
-		const tallies = this.#tallies(subjects, subjectsResult, programs)
-		const result: AggregateResult = {
-			subjects: subjectsResult,
-			determinations,
-			groups,
-			tallies,
-			count: subjects.length,
-			sums,
-		}
-		for (const rated of subjectsResult) this.#emitSubject(rated)
-		for (const determination of determinations) {
-			if (determination.applied) this.#emitter.emit('determine', determination)
-		}
-		this.#emitter.emit('aggregate', result)
-		return result
 	}
 
-	#subject(
-		subject: Subject,
-		projections?: Readonly<Record<string, Readonly<Record<string, unknown>>>>,
-	): SubjectResult {
-		const programs = this.#manager.programs().map((program) => {
-			const projection = projections?.[program.id]
-			return projection === undefined ? program.rate(subject) : program.rate(subject, projection)
-		})
-		return { subject, programs }
+	#rateLine(line: LineDefinition, subject: Subject): LineResult {
+		const result = this.#reasonQuantitative(subject, line.rate)
+		return ratedLine(line, result, this.#labels)
 	}
 
-	#emitSubject(result: SubjectResult): void {
-		for (const program of result.programs) {
-			const determinations = [
-				...program.determinations,
-				...program.lines.flatMap((rated) => rated.determinations),
-			]
-			for (const determination of determinations) {
-				if (determination.applied) this.#emitter.emit('determine', determination)
-			}
-			if (program.decision !== undefined) this.#emitter.emit('decide', program.decision, program)
-		}
-		this.#emitter.emit('rate', result)
-	}
-
-	#groups(
-		programs: readonly ProgramInterface[],
-		programGroups: ReadonlyMap<string, readonly AggregateGroup[]>,
-	): readonly AggregateGroup[] {
-		const output: AggregateGroup[] = []
-		for (const program of programs) {
-			const aggregate = program.definition.aggregate
-			if (aggregate?.by !== undefined) output.push(...(programGroups.get(program.id) ?? []))
-		}
-		return output
-	}
-
-	#projections(
-		subject: Subject,
-		programs: readonly ProgramInterface[],
-		programSums: ReadonlyMap<string, Readonly<Record<string, number>>>,
-		programGroups: ReadonlyMap<string, readonly AggregateGroup[]>,
-		count: number,
-	): Readonly<Record<string, Readonly<Record<string, unknown>>>> {
-		const output: Record<string, Readonly<Record<string, unknown>>> = {}
-		for (const program of programs) {
-			const aggregate = program.definition.aggregate
-			if (aggregate === undefined) continue
-			const sums = programSums.get(program.id)
-			if (sums === undefined) continue
-			const group = groupFor(subject, programGroups.get(program.id) ?? [], aggregate.by)
-			output[program.id] = aggregateProjection(count, sums, group)
-		}
-		return output
-	}
-
-	#aggregateDeterminations(
-		programs: readonly ProgramInterface[],
-		programSums: ReadonlyMap<string, Readonly<Record<string, number>>>,
-		programGroups: ReadonlyMap<string, readonly AggregateGroup[]>,
-		count: number,
-	): readonly Determination[] {
-		const determinations: Determination[] = []
-		for (const program of programs) {
-			const aggregate = program.definition.aggregate
-			if (aggregate?.gates === undefined) continue
-			const sums = programSums.get(program.id)
-			if (sums === undefined) continue
-			determinations.push(
-				...this.#gate(aggregate.gates, aggregateRecord(count, sums), program.definition.rulings),
-			)
-			for (const group of programGroups.get(program.id) ?? []) {
-				determinations.push(
-					...this.#gate(
-						aggregate.gates,
-						aggregateRecord(group.count, group.sums, group),
-						program.definition.rulings,
-					),
-				)
-			}
-		}
-		return determinations
-	}
-
-	#gate(
-		definition: LogicalDefinition,
-		record: Readonly<Record<string, unknown>>,
-		rulings: Readonly<Record<string, Ruling>> | undefined,
-	): readonly Determination[] {
-		const result = this.#reasonLogical(record, definition)
-		return rulesToDeterminations(definition, result, rulings, record, undefined, this.#evaluator)
-	}
-
-	#tallies(
-		subjects: readonly Subject[],
-		results: readonly SubjectResult[],
-		programs: readonly ProgramInterface[],
-	): Readonly<Record<string, Readonly<Record<string, Tally>>>> {
-		const output: Record<string, Readonly<Record<string, Tally>>> = {}
-		for (const program of programs) {
-			let tallies = emptyTallies(program.definition.aggregate?.fields ?? [])
-			for (let index = 0; index < results.length; index += 1) {
-				const subject = subjects[index]
-				const rated = results[index]?.programs.find((entry) => entry.id === program.id)
-				if (subject !== undefined && rated !== undefined) {
-					tallies = tallySubject(
-						tallies,
-						rated.status,
-						subject,
-						program.definition.aggregate?.fields ?? [],
-					)
-				}
-			}
-			output[program.id] = tallies
-		}
-		return output
-	}
-
-	// Narrows the engine's tagged ReasonResult union down to a LogicalResult for
-	// a definition the engine is guaranteed (by dispatch-by-reasoning) to resolve
-	// as such — a defensive, total fallback rather than an assertion.
-	#reasonLogical(subject: Subject, definition: LogicalDefinition): LogicalResult {
+	// Narrows the engine's tagged ReasonResult union down to a QuantitativeResult
+	// for a definition the engine is guaranteed (by dispatch-by-reasoning, given
+	// only the quantitative reasoner is ever registered) to resolve as such — a
+	// defensive, total fallback rather than an assertion.
+	#reasonQuantitative(subject: Subject, definition: QuantitativeDefinition): QuantitativeResult {
 		const result = this.#engine.reason(subject, definition)
-		if (result.reasoning === 'logical') return result
-		const failure = buildErrorResult(definition, `Expected logical result, got ${result.reasoning}`)
+		if (result.reasoning === 'quantitative') return result
+		const failure = buildErrorResult(
+			definition,
+			`Expected quantitative result, got ${result.reasoning}`,
+		)
 		const errors = [...result.errors, ...failure.errors]
-		if (failure.reasoning === 'logical') return { ...failure, errors }
+		if (failure.reasoning === 'quantitative') return { ...failure, errors }
 		return {
-			reasoning: 'logical',
-			conclusion: false,
-			rules: [],
+			reasoning: 'quantitative',
+			value: 0,
+			groups: [],
 			count: 0,
 			success: false,
 			trace: [],

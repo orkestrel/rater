@@ -1,33 +1,27 @@
 # Rater
 
-> A typed rating engine: pure, authored **program definitions** — `lines` (quantitative
-> rating), `passes` (ordered pre-rating logical/quantitative overlays), `rulings`
-> (rule id → effect routing), `notices`, and an optional `authority` (a final logical
-> gate deriving a `decision`) — are compiled and rated against **subjects** (plain data
-> records) over ONE shared `@orkestrel/reason` engine (`quantitative` + `logical`
-> reasoners, `bail: false`). Rating never mutates its inputs: every working subject is
-> built through copy-on-write overlays, and every result — `LineResult`,
-> `ProgramResult`, `SubjectResult`, `AggregateResult` — is a fresh object carrying a
-> `trace`, accumulated `errors`, and (for lines and programs) a `success` flag.
->
-> The design stance mirrors reason's: **data in, data out, no surprises**. `Rater` owns
-> the engine and an ordered `ProgramManager` (AGENTS §9) and performs NO evaluation
-> arithmetic of its own — it orchestrates compiled `Program`s and projects their
-> results into the rating domain vocabulary (`Eligibility` → `Status` → `Decision`).
-> `Program` is engine-INJECTED and never owns, destroys, or otherwise mutates the
-> shared engine. Batch rating (`rate` over an array of subjects) additionally supports
-> an `AggregateDefinition` per program — summed fields, an optional partition `by` key,
-> and optional `gates` (a logical definition run over the batch/partition sums) — for
-> cross-subject aggregate determinations and per-`Status` tallies. Every applied
-> determination and derived decision fires through `Rater`'s typed `emitter` (AGENTS
-> §13). Source: [`src/core`](../../src/core). Surfaced through the `@src/core` barrel.
+> A typed quantitative rating layer over `@orkestrel/reason`'s shared engine: authored
+> **lines** — each a plain reason `QuantitativeDefinition` joined to display metadata —
+> are rated against a **subject** (a plain data record) to produce a `LineResult` per
+> line (an `amount` plus its `Worksheet` audit trail) and one `RatingResult` (every
+> line's outcome plus a derived `total`). The caller decides WHICH lines to rate for a
+> subject — `Rater` only rates the lines it is given and reports what each one resolved
+> to; it performs NO evaluation arithmetic of its own. Rating never mutates its inputs:
+> every result is a fresh object. `Rater` either receives an injected `ReasonInterface`
+> (never destroyed by `Rater`) or builds and OWNS its own quantitative-only engine
+> (`bail: false`), destroyed in `destroy()`. An injected engine MUST be able to dispatch
+> a quantitative definition — one it cannot dispatch surfaces the engine's own error,
+> never wrapped by this package. Every `rate` call fires once through `Rater`'s typed
+> `emitter` (AGENTS §13). Source: [`src/core`](../../src/core). Surfaced through the
+> `@src/core` barrel.
 
 ## Surface
 
-Create a rater, add a program, rate a subject or a batch:
+Create a rater, rate one subject against a list of lines (or a full rating
+definition), read the derived total:
 
 ```ts
-import { createRater, lineDefinition, programDefinition } from '@orkestrel/rater'
+import { createRater, lineDefinition } from '@orkestrel/rater'
 import { factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
 
 const rater = createRater()
@@ -40,100 +34,54 @@ const base = lineDefinition(
 	]),
 )
 
-rater.programs.add(programDefinition('p1', 'Program', [base]))
+const result = rater.rate([base], { id: 'subject-1' })
+result.lines[0]?.amount // 100
+result.total // 100
 
-const result = rater.rate({ id: 'subject-1' }) // one subject → one SubjectResult
-result.programs[0]?.eligibility // 'eligible'
-
-rater.rate([{ id: 'a' }, { id: 'b' }]) // an ARRAY resolves to the batch AggregateResult overload
-
-rater.emitter.on('decide', (decision, program) => decision) // 'approved' | 'denied' | 'submitted'
+rater.emitter.on('rate', (subject, rated) => rated.success)
 
 rater.destroy()
 ```
 
-`rate` dispatches by input shape — the ARRAY overload is declared FIRST (AGENTS §9.2)
-so a subject list resolves to the batch `AggregateResult` form; a single subject
-resolves to `SubjectResult`. Every applied determination and derived decision fires
-through `rater.emitter` (`rate` / `aggregate` / `determine` / `decide`), whether rated
-one at a time or in a batch.
+`rate` dispatches by input shape — the array-of-lines overload is declared FIRST
+(AGENTS §9.2) so a plain line list resolves to that form; a `RatingDefinition` resolves
+the same way through its own `lines`. Both overloads rate exactly ONE subject — there
+is no batch overload, and the subject must be a plain record or `rate` throws
+`RaterError` `'MISMATCH'`; an input that is neither an array of lines nor a
+`RatingDefinition` throws `RaterError` `'DEFINITION'`. A line that fails to resolve (a
+missing lookup entry, a failed required factor) is a rating FAILURE reported on its
+own `LineResult` (`success: false`, no `amount`, a populated `worksheet.errors`) — the
+caller decides what to do with a failed line; `Rater` only reports exactly what each
+line resolved to. `total` is derived from every line's `amount` by a `TotalHandler`
+(default `sumAmounts`, overridable through `RaterOptions.total`) and counts only the
+lines that succeeded.
 
 ### Types
 
-| Type                      | Kind      | Shape                                                                                                                                                                                                                                                                                              |
-| ------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Eligibility`             | type      | `'eligible' \| 'ineligible' \| 'referral'` — the advisory eligibility axis a program or line outcome carries.                                                                                                                                                                                      |
-| `Decision`                | type      | `'approved' \| 'denied' \| 'submitted'` — the deterministic authority decision derived from eligibility.                                                                                                                                                                                           |
-| `Status`                  | type      | `'ineligible' \| 'referral' \| 'conditional' \| 'unrated' \| 'eligible'` — derived from eligibility, conditions, and rating success.                                                                                                                                                               |
-| `Effect`                  | type      | `'restriction' \| 'referral' \| 'condition' \| 'notice' \| 'limit'` — a resolved determination effect.                                                                                                                                                                                             |
-| `Stage`                   | type      | `'factor' \| 'group' \| 'total'` — a worksheet derivation step stage.                                                                                                                                                                                                                              |
-| `RaterErrorCode`          | type      | `'DUPLICATE' \| 'MISSING' \| 'DEFINITION' \| 'MISMATCH' \| 'DESTROYED'` — a coded `RaterError` programmer-error code.                                                                                                                                                                              |
-| `TotalHandler`            | type      | `(lines: readonly LineResult[]) => number \| undefined` — a pure total port over resolved lines.                                                                                                                                                                                                   |
-| `LineDefinition`          | interface | `{ id, name, description?, rate, metadata? }` — a rateable quantitative definition joined to display metadata.                                                                                                                                                                                     |
-| `PassDefinition`          | interface | `{ line?, definition }` — an ordered pre-rating pass over the working subject; `line` scopes a logical pass's determinations.                                                                                                                                                                      |
-| `Ruling`                  | interface | `{ effect, line?, message? }` — an authored consequence routed to a fired rule by its id.                                                                                                                                                                                                          |
-| `Notice`                  | interface | `{ id, message, line? }` — an authored informational determination emitted unconditionally.                                                                                                                                                                                                        |
-| `AggregateDefinition`     | interface | `{ fields, by?, gates? }` — batch aggregate fields, an optional partition key, and optional gates.                                                                                                                                                                                                 |
-| `ProgramDefinition`       | interface | `{ id, name, description?, passes?, lines, rulings?, notices?, authority?, aggregate?, metadata? }` — a pure authored program.                                                                                                                                                                     |
-| `ProgramOptions`          | interface | `{ total?, labels? }` — runtime options for one compiled program.                                                                                                                                                                                                                                  |
-| `Premise`                 | interface | `{ field?, label?, description?, comparison?, expected?, actual?, met? }` — a shared checked-evidence row rendered display-neutral.                                                                                                                                                                |
-| `Determination`           | interface | `{ id, effect, applied, line?, message?, premises }` — a resolved rule, authority, or notice outcome.                                                                                                                                                                                              |
-| `WorksheetFactor`         | interface | `{ id, name?, description?, applied, value?, premises }` — a resolved quantitative factor joined to its authored metadata.                                                                                                                                                                         |
-| `WorksheetGroup`          | interface | `{ id, name?, description?, applied, value, factors }` — a resolved quantitative group joined to its authored metadata.                                                                                                                                                                            |
-| `Step`                    | interface | `{ stage, id?, name?, value, expression? }` — a display-neutral worksheet derivation step.                                                                                                                                                                                                         |
-| `Worksheet`               | interface | `{ id, name, aggregation, precision?, value, groups, steps, trace, errors, success }` — a quantitative definition joined to its result, the rating audit trail.                                                                                                                                    |
-| `LineResult`              | interface | `{ id, name, eligibility, amount?, worksheet?, determinations }` — one line's rating outcome.                                                                                                                                                                                                      |
-| `ProgramResult`           | interface | `{ id, name, eligibility, status, decision?, lines, determinations, derivations, total?, success, trace, errors }` — one program's rating outcome; `decision` is present only when the program has an authority, its result is logical, no `limit` determinations fired, and it carries no errors. |
-| `SubjectResult`           | interface | `{ subject, programs }` — one rated subject's outcome across every compiled program.                                                                                                                                                                                                               |
-| `AggregateGroup`          | interface | `{ key, count, sums }` — one batch aggregate partition.                                                                                                                                                                                                                                            |
-| `Tally`                   | interface | `{ count, sums }` — a status tally for one program: a count plus summed aggregate fields.                                                                                                                                                                                                          |
-| `AggregateResult`         | interface | `{ subjects, determinations, groups, tallies, count, sums }` — a batch rating outcome across every subject.                                                                                                                                                                                        |
-| `RaterEventMap`           | type      | `Rater`'s push observation surface (AGENTS §13) — `rate(result)` · `aggregate(result)` · `determine(determination)` · `decide(decision, result)`.                                                                                                                                                  |
-| `RaterOptions`            | interface | `{ on?, error?, total?, programs?, labels?, validate? }` — input to `createRater`.                                                                                                                                                                                                                 |
-| `RaterInterface`          | interface | The rating orchestrator — `emitter` + `programs` + `rate` (batch overload declared FIRST) + `destroy`.                                                                                                                                                                                             |
-| `ProgramInterface`        | interface | A compiled program — `id` / `name` / `definition` + `rate`.                                                                                                                                                                                                                                        |
-| `ProgramManagerEventMap`  | type      | `ProgramManager`'s push observation surface (AGENTS §13) — `add(id)` · `remove(id)` · `destroy()`.                                                                                                                                                                                                 |
-| `ProgramManagerOptions`   | interface | `{ on?, error?, total?, labels?, validate? }` — input to `createProgramManager` / the `ProgramManager` constructor.                                                                                                                                                                                |
-| `ProgramManagerInterface` | interface | An ordered manager over compiled programs (AGENTS §9) — `emitter` / `size` + `has` / `program` / `programs` / `add` / `remove` / `destroy`.                                                                                                                                                        |
-
-### Constants
-
-| API                      | Kind  | Summary                                                                                            |
-| ------------------------ | ----- | -------------------------------------------------------------------------------------------------- |
-| `DEFAULT_RATER_VALIDATE` | const | `true` — default definition validation policy for `ProgramManager.add`.                            |
-| `ELIGIBILITY_PRECEDENCE` | const | Eligibility severity order, most severe first — the `combineEligibilities` scan order.             |
-| `STATUS_PRECEDENCE`      | const | Status tally precedence order, least to most resolved.                                             |
-| `ELIGIBILITY_DECISIONS`  | const | The deterministic authority decision for each eligibility.                                         |
-| `EFFECT_ELIGIBILITIES`   | const | The direct eligibility impact of an applied determination, by its effect.                          |
-| `AGGREGATE_KEY`          | const | `'aggregate'` — the reserved working-subject key a batch's aggregate projection is written under.  |
-| `OUTCOME_KEY`            | const | `'outcome'` — the reserved working-subject key an authority's outcome projection is written under. |
-
-```ts
-import {
-	AGGREGATE_KEY,
-	DEFAULT_RATER_VALIDATE,
-	EFFECT_ELIGIBILITIES,
-	ELIGIBILITY_DECISIONS,
-	ELIGIBILITY_PRECEDENCE,
-	OUTCOME_KEY,
-	STATUS_PRECEDENCE,
-} from '@orkestrel/rater'
-
-DEFAULT_RATER_VALIDATE // true
-ELIGIBILITY_PRECEDENCE // ['ineligible', 'referral', 'eligible']
-STATUS_PRECEDENCE // ['ineligible', 'referral', 'conditional', 'unrated', 'eligible']
-ELIGIBILITY_DECISIONS.eligible // 'approved'
-EFFECT_ELIGIBILITIES.restriction // 'ineligible'
-AGGREGATE_KEY // 'aggregate'
-OUTCOME_KEY // 'outcome'
-```
+| Type               | Kind      | Shape                                                                                                                                                           |
+| ------------------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Stage`            | type      | `'factor' \| 'group' \| 'total'` — a worksheet derivation step stage.                                                                                           |
+| `RaterErrorCode`   | type      | `'DEFINITION' \| 'MISMATCH' \| 'DESTROYED'` — a coded `RaterError` programmer-error code.                                                                       |
+| `TotalHandler`     | type      | `(lines: readonly LineResult[]) => number \| undefined` — a pure total port over resolved lines.                                                                |
+| `LineDefinition`   | interface | `{ id, name, description?, rate, metadata? }` — one rateable line: a quantitative definition joined to display metadata.                                        |
+| `RatingDefinition` | interface | `{ id, name, description?, lines, metadata? }` — a pure authored rating: a named, ordered set of lines.                                                         |
+| `Premise`          | interface | `{ field?, label?, comparison?, expected?, actual?, met? }` — a shared checked-evidence row rendered into a display-neutral sentence.                           |
+| `WorksheetFactor`  | interface | `{ id, name?, description?, applied, value?, premises }` — a resolved quantitative factor joined to its authored metadata.                                      |
+| `WorksheetGroup`   | interface | `{ id, name?, description?, applied, value, factors }` — a resolved quantitative group joined to its authored metadata.                                         |
+| `Step`             | interface | `{ stage, id?, name?, value, expression? }` — a display-neutral worksheet derivation step.                                                                      |
+| `Worksheet`        | interface | `{ id, name, aggregation, precision?, value, groups, steps, trace, errors, success }` — a quantitative definition joined to its result, the rating audit trail. |
+| `LineResult`       | interface | `{ id, name, amount?, worksheet, success }` — one line's rating outcome; `amount` is present ONLY when `success` is `true`.                                     |
+| `RatingResult`     | interface | `{ lines, total?, success }` — a rated outcome across every line of one `rate` call; `success` is `true` only when every line succeeded.                        |
+| `RaterEventMap`    | type      | `Rater`'s push observation surface (AGENTS §13) — `rate(subject, result)`.                                                                                      |
+| `RaterOptions`     | interface | `{ on?, error?, engine?, total?, labels? }` — input to `createRater`.                                                                                           |
+| `RaterInterface`   | interface | The rating orchestrator over the shared engine — `emitter` + `rate` (array overload declared FIRST) + `destroy`.                                                |
 
 ### Errors
 
-| API            | Kind     | Summary                                                                                                              |
-| -------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
-| `RaterError`   | class    | Carries a `RaterErrorCode` (`DUPLICATE` / `MISSING` / `DEFINITION` / `MISMATCH` / `DESTROYED`) + optional `context`. |
-| `isRaterError` | function | Narrow a caught value to a `RaterError`.                                                                             |
+| API            | Kind     | Summary                                                                                    |
+| -------------- | -------- | ------------------------------------------------------------------------------------------ |
+| `RaterError`   | class    | Carries a `RaterErrorCode` (`DEFINITION` / `MISMATCH` / `DESTROYED`) + optional `context`. |
+| `isRaterError` | function | Narrow a caught value to a `RaterError`.                                                   |
 
 ```ts
 import { isRaterError, RaterError } from '@orkestrel/rater'
@@ -151,131 +99,66 @@ Total guards (AGENTS §14) composed from `@orkestrel/contract` combinators — a
 input (junk, cycles, hostile prototypes) returns `false`, never throws. Record guards
 are **exact**: an extra key fails.
 
-| API                     | Kind     | Narrows to                                                          |
-| ----------------------- | -------- | ------------------------------------------------------------------- |
-| `isEligibility`         | const    | `Eligibility`.                                                      |
-| `isDecision`            | const    | `Decision`.                                                         |
-| `isStatus`              | const    | `Status`.                                                           |
-| `isEffect`              | const    | `Effect`.                                                           |
-| `isStage`               | const    | `Stage`.                                                            |
-| `isRuling`              | function | `Ruling`.                                                           |
-| `isNotice`              | function | `Notice`.                                                           |
-| `isPassDefinition`      | function | `PassDefinition`.                                                   |
-| `isLineDefinition`      | function | `LineDefinition`.                                                   |
-| `isAggregateDefinition` | function | `AggregateDefinition`.                                              |
-| `isRulings`             | const    | `Readonly<Record<string, Ruling>>` — a rule-id-keyed ruling record. |
-| `isProgramDefinition`   | function | `ProgramDefinition`.                                                |
+| API                  | Kind     | Narrows to          |
+| -------------------- | -------- | ------------------- |
+| `isStage`            | const    | `Stage`.            |
+| `isLineDefinition`   | function | `LineDefinition`.   |
+| `isRatingDefinition` | function | `RatingDefinition`. |
 
 ```ts
-import {
-	isAggregateDefinition,
-	isDecision,
-	isEffect,
-	isEligibility,
-	isLineDefinition,
-	isNotice,
-	isPassDefinition,
-	isProgramDefinition,
-	isRulings,
-	isRuling,
-	isStage,
-	isStatus,
-} from '@orkestrel/rater'
+import { isLineDefinition, isRatingDefinition, isStage } from '@orkestrel/rater'
 import { quantitativeDefinition } from '@orkestrel/reason'
 
-isEligibility('eligible') // true
-isDecision('approved') // true
-isStatus('unrated') // true
-isEffect('restriction') // true
 isStage('group') // true
-isRuling({ effect: 'restriction' }) // true
-isNotice({ id: 'n1', message: 'Rated' }) // true
-isPassDefinition({ definition: quantitativeDefinition('surcharge', 'Surcharge', []) }) // true
 isLineDefinition({
 	id: 'base',
 	name: 'Base Amount',
 	rate: quantitativeDefinition('base', 'Base', []),
 }) // true
-isAggregateDefinition({ fields: ['amount'] }) // true
-isRulings({ r1: { effect: 'restriction' } }) // true
-isProgramDefinition({ id: 'p1', name: 'Program', lines: [] }) // true
+isRatingDefinition({ id: 'r1', name: 'Rating', lines: [] }) // true
 ```
 
 ### Helpers
 
-Pure, exported utility functions (AGENTS §4.3) — the display-neutral projection,
-determination-assembly, eligibility/status derivation, and aggregate arithmetic behind
-`Program` and `Rater`.
+Pure, exported utility functions (AGENTS §4.3) — the premise construction and
+worksheet-joining behind `Rater`'s `rate` projection.
 
-| API                              | Kind     | Summary                                                                                                                   |
-| -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `interpolateMessage`             | function | Interpolate `{{dotted.path}}` tokens in a message template against a record.                                              |
-| `describeComparison`             | function | Describe a `Premise` comparison as a display-neutral verb phrase.                                                         |
-| `describeValue`                  | function | Render a structured or scalar value display-neutrally (arrays, Bounds-shaped records, scalars).                           |
-| `describePremise`                | function | Render one `Premise` into a display-neutral sentence.                                                                     |
-| `premiseCheck`                   | function | Build a `Premise` from an evaluated `Check`.                                                                              |
-| `checkPremises`                  | function | Build premises from a quantitative factor's authored checks and evaluated check results.                                  |
-| `describeExpression`             | function | Describe a logical `Expression` tree without atom-specific evidence.                                                      |
-| `logicalPremises`                | function | Build rich premises for one fired `Rule` by walking its premise atoms and re-evaluating each against the working subject. |
-| `findRule`                       | function | Locate an authored `Rule` by id.                                                                                          |
-| `worksheetFactor`                | function | Join one authored quantitative factor to its evaluated `FactorResult`.                                                    |
-| `worksheetGroup`                 | function | Join one authored quantitative group to its evaluated `GroupResult`.                                                      |
-| `worksheetStep`                  | function | Build one display-neutral `Step` row.                                                                                     |
-| `worksheetSteps`                 | function | Build the ordered `Step` rows for a resolved `Worksheet`.                                                                 |
-| `resultsWorksheet`               | function | Join a `QuantitativeDefinition` and its `QuantitativeResult` into a `Worksheet` — the rating audit trail.                 |
-| `rulesToDeterminations`          | function | Convert fired logical `RuleResult`s into line- or program-scoped `Determination`s.                                        |
-| `authorityToDeterminations`      | function | Convert an authority's fired `RuleResult`s into `limit` `Determination`s.                                                 |
-| `noticesToDeterminations`        | function | Convert authored `Notice`s into unconditionally-applied `notice` `Determination`s.                                        |
-| `filterLineDeterminations`       | function | Keep only the determinations scoped to one line.                                                                          |
-| `filterProgramDeterminations`    | function | Keep only program-scoped (line-unscoped) determinations.                                                                  |
-| `deriveDeterminationEligibility` | function | Derive the eligibility impact of a set of determinations.                                                                 |
-| `combineEligibilities`           | function | Return the most severe `Eligibility` in a list.                                                                           |
-| `decideEligibility`              | function | Convert an `Eligibility` to its deterministic authority `Decision`.                                                       |
-| `deriveStatus`                   | function | Derive the final `Status` from eligibility, determinations, and rated line evidence.                                      |
-| `ratedLine`                      | function | Build a rated `LineResult` from a line's evaluated `QuantitativeResult`.                                                  |
-| `sumAmounts`                     | function | Sum defined line amounts.                                                                                                 |
-| `outcomeProjection`              | function | Build an authority outcome projection from an assembled `ProgramResult`.                                                  |
-| `programResult`                  | function | Assemble a final `ProgramResult` from its rated parts.                                                                    |
-| `findMissingLineReferences`      | function | Return authored line references (in passes, rulings, or notices) that name no line on the program.                        |
-| `findReservedCollisions`         | function | Return offending pass/rule ids that shadow the `AGGREGATE_KEY` / `OUTCOME_KEY` reserved working-subject keys.             |
-| `hasReservedKey`                 | function | Determine whether a working record already carries a reserved rater key.                                                  |
-| `assertSubject`                  | function | Assert a value is a valid rater `Subject`, narrowing it in place.                                                         |
-| `aggregateSums`                  | function | Sum aggregate fields across a batch of subjects.                                                                          |
-| `aggregateGroups`                | function | Partition a batch of subjects by a field, summing aggregate fields per partition.                                         |
-| `aggregateFields`                | function | Collect the deduped, ordered union of every program's aggregate fields.                                                   |
-| `groupFor`                       | function | Locate the `AggregateGroup` a subject belongs to.                                                                         |
-| `aggregateProjection`            | function | Build the batch aggregate working projection written under `AGGREGATE_KEY`'s value.                                       |
-| `aggregateRecord`                | function | Build the reserved-key record an aggregate gate definition runs against.                                                  |
-| `emptySums`                      | function | Build zero sums for a set of fields.                                                                                      |
-| `completeTallies`                | function | Complete a partial status tally record with zero entries for every missing `Status`.                                      |
-| `emptyTallies`                   | function | Build empty status tallies in precedence order.                                                                           |
-| `tallySubject`                   | function | Add one subject's aggregate contribution to a status tally record.                                                        |
+| API                | Kind     | Summary                                                                                                   |
+| ------------------ | -------- | --------------------------------------------------------------------------------------------------------- |
+| `premiseCheck`     | function | Build a `Premise` from an evaluated `Check`.                                                              |
+| `checkPremises`    | function | Build premises from a quantitative factor's authored checks and evaluated check results.                  |
+| `worksheetFactor`  | function | Join one authored quantitative factor to its evaluated `FactorResult`.                                    |
+| `worksheetGroup`   | function | Join one authored quantitative group to its evaluated `GroupResult`.                                      |
+| `worksheetStep`    | function | Build one display-neutral `Step` row.                                                                     |
+| `worksheetSteps`   | function | Build the ordered `Step` rows for a resolved `Worksheet`.                                                 |
+| `resultsWorksheet` | function | Join a `QuantitativeDefinition` and its `QuantitativeResult` into a `Worksheet` — the rating audit trail. |
+| `ratedLine`        | function | Build a rated `LineResult` from a line's evaluated `QuantitativeResult`.                                  |
+| `sumAmounts`       | function | Sum defined line amounts.                                                                                 |
+
+Premise construction — a `Check` (and its evaluated result) rendered into a
+display-neutral `Premise`; `labels` (keyed by dot-joined field) override the resolved
+`label`:
 
 ```ts
-import {
-	combineEligibilities,
-	deriveDeterminationEligibility,
-	describeComparison,
-	describePremise,
-	describeValue,
-	interpolateMessage,
-} from '@orkestrel/rater'
+import { checkPremises, premiseCheck } from '@orkestrel/rater'
+import { check } from '@orkestrel/reason'
 
-interpolateMessage('Limit is {{limit}}', { limit: 5010 }) // 'Limit is 5,010'
-describeComparison('above') // 'is more than'
-describeValue([18, 25, 40]) // '18, 25, 40'
-describeValue({ minimum: 18, maximum: 65 }) // '18 and 65'
-describePremise({ field: 'age', comparison: 'above', expected: 18, actual: 25, met: true })
-deriveDeterminationEligibility([{ id: 'r1', effect: 'restriction', applied: true, premises: [] }]) // 'ineligible'
-combineEligibilities(['eligible', 'referral']) // 'referral'
+const evaluated = check('age', 'above', 18)
+premiseCheck(evaluated, 25, true) // { field: 'age', comparison: 'above', expected: 18, actual: 25, met: true }
+premiseCheck(evaluated, 25, true, { age: 'Age' }) // labels override → adds { label: 'Age' }
+checkPremises([evaluated], [{ field: 'age', met: true, actual: 25 }])
 ```
 
-Worksheet joining — one authored quantitative definition and its evaluated result,
-walked into the display-neutral `Worksheet` audit trail:
+Worksheet joining and line assembly — one authored quantitative definition and its
+evaluated result, walked into the display-neutral `Worksheet` audit trail and then a
+rated `LineResult`:
 
 ```ts
 import {
+	lineDefinition,
+	ratedLine,
 	resultsWorksheet,
+	sumAmounts,
 	worksheetFactor,
 	worksheetGroup,
 	worksheetStep,
@@ -306,272 +189,69 @@ if (result.reasoning === 'quantitative') {
 	worksheetStep('total', definition.id, definition.name, result.value, `sum = ${result.value}`)
 	worksheetSteps(definition, result, []) // the full ordered step list: factors, groups, then the total
 	resultsWorksheet(definition, result) // the whole worksheet — groups, steps, trace, errors, success
+
+	const line = lineDefinition('risk', 'Risk', definition)
+	ratedLine(line, result) // the line's rated LineResult — amount present only when success
 }
-```
 
-Determination assembly — converting fired logical rules and authored notices into
-`Determination`s, with rich re-evaluated premises:
-
-```ts
-import {
-	authorityToDeterminations,
-	checkPremises,
-	describeExpression,
-	filterLineDeterminations,
-	filterProgramDeterminations,
-	findRule,
-	logicalPremises,
-	noticesToDeterminations,
-	premiseCheck,
-	rulesToDeterminations,
-} from '@orkestrel/rater'
-import {
-	atom,
-	check,
-	createEvaluator,
-	createLogicalReasoner,
-	createReason,
-	logicalDefinition,
-	rule,
-} from '@orkestrel/reason'
-
-const gate = logicalDefinition('gate', [rule('over', [atom(check('age', 'above', 18))])])
-const evaluator = createEvaluator()
-const engine = createReason({ reasoners: [createLogicalReasoner()] })
-const working = { age: 25 }
-const result = engine.reason(working, gate)
-
-if (result.reasoning === 'logical') {
-	rulesToDeterminations(gate, result, undefined, working, 'base', evaluator) // line-scoped determinations
-	authorityToDeterminations(gate, result, undefined, working, evaluator) // authority `limit` determinations
-}
-noticesToDeterminations([{ id: 'n1', message: 'Rated on {{date}}' }], working)
-filterLineDeterminations([], 'base')
-filterProgramDeterminations([])
-
-const authored = findRule(gate, 'over')
-if (authored !== undefined) {
-	logicalPremises(authored, working, evaluator)
-	describeExpression(authored.premises[0] ?? atom(check('age', 'above', 18)))
-}
-const evaluated = check('age', 'above', 18)
-premiseCheck(evaluated, 25, true)
-checkPremises([evaluated], [{ field: 'age', met: true, actual: 25 }])
-```
-
-Eligibility, status, and final program assembly — `decideEligibility` and
-`deriveStatus` derive the domain vocabulary; `ratedLine`, `outcomeProjection`, and
-`programResult` assemble the final results (see `Program`'s `rate` orchestration for
-the full worked sequence); `sumAmounts`, `findMissingLineReferences`, and
-`findReservedCollisions` are the supporting checks:
-
-```ts
-import { quantitativeDefinition } from '@orkestrel/reason'
-import {
-	decideEligibility,
-	deriveStatus,
-	findMissingLineReferences,
-	findReservedCollisions,
-	outcomeProjection,
-	passDefinition,
-	programDefinition,
-	programResult,
-	ratedLine,
-	sumAmounts,
-} from '@orkestrel/rater'
-
-decideEligibility('referral') // 'submitted'
-deriveStatus('eligible', [], []) // 'eligible' — nothing applied, every line already checked
 sumAmounts([]) // undefined — no line carries an amount
-findMissingLineReferences({ id: 'p1', name: 'Program', lines: [] }) // [] — every reference resolves
-findReservedCollisions(
-	programDefinition('p1', 'P1', [], {
-		passes: [passDefinition(quantitativeDefinition('aggregate', 'Aggregate', []))],
-	}),
-) // ['aggregate'] — a quantitative pass id shadows the reserved AGGREGATE_KEY
-// ratedLine, outcomeProjection, and programResult assemble a ProgramResult's parts —
-// see Program.ts's `rate` method for the full end-to-end orchestration.
-```
-
-Subject validation and aggregate arithmetic — the batch rating support behind
-`Rater`'s array `rate` overload:
-
-```ts
-import {
-	aggregateFields,
-	aggregateGroups,
-	aggregateProjection,
-	aggregateRecord,
-	aggregateSums,
-	assertSubject,
-	completeTallies,
-	emptySums,
-	emptyTallies,
-	groupFor,
-	hasReservedKey,
-	tallySubject,
-} from '@orkestrel/rater'
-
-const subjects = [
-	{ id: 'a', amount: 10 },
-	{ id: 'b', amount: 20 },
-]
-aggregateSums(subjects, ['amount']) // { amount: 30 }
-const groups = aggregateGroups(subjects, ['amount'], 'id') // one partition per distinct subject id
-groupFor(subjects[0] ?? {}, groups, 'id') // the group the first subject belongs to
-aggregateProjection(2, { amount: 30 }) // { count: 2, sums: { amount: 30 } }
-aggregateRecord(2, { amount: 30 }) // { aggregate: { count: 2, sums: { amount: 30 } } }
-emptySums(['amount']) // { amount: 0 }
-const tallies = emptyTallies(['amount']) // every Status zeroed
-completeTallies({ eligible: { count: 1, sums: {} } }) // the other four statuses filled with zeros
-const subject = subjects[0]
-if (subject !== undefined) tallySubject(tallies, 'eligible', subject, ['amount'])
-hasReservedKey({ aggregate: {} }) // true — the reserved `aggregate` key is already present
-assertSubject({ id: 'a' }) // throws RaterError('MISMATCH') when not a record or reserved-key
 ```
 
 ### Factories
 
-| API                    | Kind     | Builds…                                                                               |
-| ---------------------- | -------- | ------------------------------------------------------------------------------------- |
-| `createRater`          | function | A `RaterInterface` — the rating orchestrator, seeded from `RaterOptions`.             |
-| `createProgram`        | function | A compiled `ProgramInterface`, validated, over an injected reasoning engine.          |
-| `createProgramManager` | function | A `ProgramManagerInterface`, built over an injected, shared reasoning engine.         |
-| `programDefinition`    | function | A `ProgramDefinition` from id / name / lines (`overrides` merged over the defaults).  |
-| `lineDefinition`       | function | A `LineDefinition` from id / name / rate (`overrides` merged over the defaults).      |
-| `passDefinition`       | function | A `PassDefinition` from a logical or quantitative definition, optionally line-scoped. |
-| `rulingDefinition`     | function | A `Ruling` from effect, optional line scope, and optional message template.           |
-| `noticeDefinition`     | function | A `Notice` from id / message, optionally line-scoped.                                 |
-| `aggregateDefinition`  | function | An `AggregateDefinition` from fields, optional partition key, and optional gates.     |
+| API                | Kind     | Builds…                                                                             |
+| ------------------ | -------- | ----------------------------------------------------------------------------------- |
+| `createRater`      | function | A `RaterInterface` — the rating orchestrator, seeded from `RaterOptions`.           |
+| `lineDefinition`   | function | A `LineDefinition` from id / name / rate (`overrides` merged over the defaults).    |
+| `ratingDefinition` | function | A `RatingDefinition` from id / name / lines (`overrides` merged over the defaults). |
 
 Every factory returns a fresh object and omits absent optional keys entirely.
 
 ```ts
-import {
-	createLogicalReasoner,
-	createQuantitativeReasoner,
-	createReason,
-	quantitativeDefinition,
-} from '@orkestrel/reason'
-import {
-	aggregateDefinition,
-	createProgram,
-	createProgramManager,
-	createRater,
-	lineDefinition,
-	noticeDefinition,
-	passDefinition,
-	programDefinition,
-	rulingDefinition,
-} from '@orkestrel/rater'
+import { createRater, lineDefinition, ratingDefinition } from '@orkestrel/rater'
+import { quantitativeDefinition } from '@orkestrel/reason'
 
 const rater = createRater()
 rater.destroy()
 
-const engine = createReason({
-	reasoners: [createQuantitativeReasoner(), createLogicalReasoner()],
-	bail: false,
-})
-const program = createProgram(programDefinition('p1', 'Program', []), engine)
-
-const manager = createProgramManager(engine)
-manager.add(programDefinition('p2', 'P2', []))
-manager.destroy()
-
-lineDefinition('base', 'Base Amount', quantitativeDefinition('base', 'Base', []))
-passDefinition(quantitativeDefinition('surcharge', 'Surcharge', []))
-rulingDefinition('restriction', 'base', 'Amount exceeds {{limit}}')
-noticeDefinition('n1', 'Rated on {{date}}')
-aggregateDefinition(['amount'])
+const base = lineDefinition('base', 'Base Amount', quantitativeDefinition('base', 'Base', []))
+ratingDefinition('r1', 'Rating', [base])
 ```
 
 ### Entities
 
-| API              | Kind  | Summary                                                                                                                                         |
-| ---------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Rater`          | class | The rating orchestrator — owns the shared reasoning engine and an ordered `ProgramManager`; projects results into the rating domain vocabulary. |
-| `Program`        | class | A compiled program — rates one subject at a time over an injected, shared reasoning engine.                                                     |
-| `ProgramManager` | class | An ordered manager over compiled `ProgramInterface`s (AGENTS §9), built over an injected, shared reasoning engine.                              |
+| API     | Kind  | Summary                                                                                                                                       |
+| ------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Rater` | class | The rating orchestrator — owns (or receives) the shared quantitative reasoning engine and projects results into the rating domain vocabulary. |
 
 ## Methods
 
-The public methods of each behavioral interface — one table per type, keyed by its
-backticked name, every call-signature member listed (the `readonly` data members —
-`emitter` on `Rater` and `ProgramManager`; `programs` on `Rater`; `id` / `name` /
-`definition` on `Program`; `size` on `ProgramManager` — stay off the method tables).
-Each implementing class (`Rater`, `Program`, `ProgramManager`) exposes exactly its
-interface's methods, so this doubles as the per-instance method surface (AGENTS §22).
+The public methods of `RaterInterface` — one table, keyed by its backticked name,
+every call-signature member listed (the `readonly` data member `emitter` stays off the
+method table). `Rater` exposes exactly its interface's methods, so this doubles as the
+per-instance method surface (AGENTS §22).
 
 #### `RaterInterface`
 
-The array overload of `rate` is declared FIRST (AGENTS §9.2) so a subject list resolves
-to the batch form. `destroy()` tears down the program manager, then the shared engine,
-then the emitter LAST (AGENTS §13); afterwards every other method throws `RaterError`
-`'DESTROYED'`.
+The array-of-lines overload of `rate` is declared FIRST (AGENTS §9.2) so a plain line
+list resolves to that form; both overloads rate exactly ONE subject. `destroy()` is
+idempotent — it destroys an OWNED engine (never an injected one), then the emitter LAST
+(AGENTS §13). Afterwards every other method throws `RaterError` `'DESTROYED'`.
 
-| Method    | Returns                                | Behavior                                                                                    |
-| --------- | -------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `rate`    | `AggregateResult` (or `SubjectResult`) | Rate an ARRAY of subjects as one batch — or rate ONE subject — over every compiled program. |
-| `destroy` | `void`                                 | Idempotent teardown — the manager, then the engine, then the emitter LAST.                  |
+| Method    | Returns        | Behavior                                                                                        |
+| --------- | -------------- | ----------------------------------------------------------------------------------------------- |
+| `rate`    | `RatingResult` | Rate an array of lines — or a `RatingDefinition` — against ONE subject, over the shared engine. |
+| `destroy` | `void`         | Idempotent teardown — an OWNED engine, then the emitter LAST.                                   |
 
 ```ts
-import { createRater } from '@orkestrel/rater'
+import { createRater, lineDefinition } from '@orkestrel/rater'
+import { quantitativeDefinition } from '@orkestrel/reason'
 
 const rater = createRater()
-rater.rate([{ id: 'a' }, { id: 'b' }]) // ARRAY first — the batch AggregateResult overload
-rater.rate({ id: 'a' }) // ONE subject — the SubjectResult overload
+const base = lineDefinition('base', 'Base Amount', quantitativeDefinition('base', 'Base', []))
+
+rater.rate([base], { id: 'subject-1' }) // the array-of-lines overload
+rater.rate({ id: 'r1', name: 'Rating', lines: [base] }, { id: 'subject-1' }) // the RatingDefinition overload
+
 rater.destroy()
-```
-
-#### `ProgramInterface`
-
-`rate` builds its working subject through copy-on-write overlays only — the caller's
-`subject` is never mutated. `aggregate` is the caller-supplied batch aggregate
-projection for this program, when rated as part of a batch. The result's `decision` is
-present only when the program has an `authority`, its result is logical, no `limit`
-determinations fired, and it carries no errors.
-
-| Method | Returns         | Behavior                                                                                                   |
-| ------ | --------------- | ---------------------------------------------------------------------------------------------------------- |
-| `rate` | `ProgramResult` | Rate one subject: run passes, rate lines, assemble determinations and worksheets, then the authority gate. |
-
-```ts
-import { createLogicalReasoner, createQuantitativeReasoner, createReason } from '@orkestrel/reason'
-import { createProgram, programDefinition } from '@orkestrel/rater'
-
-const engine = createReason({
-	reasoners: [createQuantitativeReasoner(), createLogicalReasoner()],
-	bail: false,
-})
-const program = createProgram(programDefinition('p1', 'Program', []), engine)
-program.rate({ id: 'subject-1' }) // one ProgramResult
-```
-
-#### `ProgramManagerInterface`
-
-The self-owning, ordered manager over compiled programs (AGENTS §9). `add` validates
-(when the manager's `validate` policy is on) and throws `RaterError` `'DUPLICATE'` on
-an id collision, or `'DEFINITION'` on a failed `isProgramDefinition` check. A call
-after `destroy()` throws `RaterError` `'DESTROYED'`.
-
-| Method     | Returns                         | Behavior                                                                                                                                |
-| ---------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `has`      | `boolean`                       | Whether a program with the given id is compiled.                                                                                        |
-| `program`  | `ProgramInterface \| undefined` | Look up ONE compiled program by id (the AGENTS §9.1 singular accessor).                                                                 |
-| `programs` | `readonly ProgramInterface[]`   | List ALL compiled programs in order (the AGENTS §9.1 plural accessor).                                                                  |
-| `add`      | `ProgramInterface`              | Compile and add one program from its definition; emits `add`.                                                                           |
-| `remove`   | `boolean` (or `void`)           | Remove LISTED programs by id, ONE program by id, or ALL programs — the AGENTS §9.2 batch overload shape; emits `remove` per removed id. |
-| `destroy`  | `void`                          | Idempotent teardown — clears the collection, emits `destroy`, then destroys the emitter LAST.                                           |
-
-```ts
-import { createRater, programDefinition } from '@orkestrel/rater'
-
-const rater = createRater()
-rater.programs.add(programDefinition('p1', 'Program', []))
-rater.programs.has('p1') // true
-rater.programs.program('p1') // the compiled ProgramInterface, or undefined
-rater.programs.programs() // every compiled program, in order
-rater.programs.remove('p1') // true — removed one program
-rater.programs.remove() // remove ALL remaining programs
-rater.programs.destroy()
 ```

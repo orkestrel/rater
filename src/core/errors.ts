@@ -4,11 +4,16 @@ import type { RaterErrorCode } from './types.js'
  * A coded programmer error thrown by the rating layer.
  *
  * @remarks
- * `DUPLICATE` — a program id collision on `ProgramManager.add`. `MISSING` — an
- * unknown authored line reference at compile time.
- * `DEFINITION` — a program definition failed `isProgramDefinition`. `MISMATCH` —
- * a rated subject is not a record, or uses a reserved working-subject key.
+ * `DEFINITION` — the `rate` input failed both the array-of-lines and rating
+ * definition validation. `MISMATCH` — a rated subject is not a record.
  * `DESTROYED` — use of a destroyed entity.
+ *
+ * @example
+ * ```ts
+ * import { RaterError } from '@orkestrel/rater'
+ *
+ * throw new RaterError('MISMATCH', 'Subject must be a record')
+ * ```
  */
 export class RaterError extends Error {
 	readonly code: RaterErrorCode
@@ -22,7 +27,23 @@ export class RaterError extends Error {
 	}
 }
 
-/** Narrow a caught value to a {@link RaterError}. */
+/**
+ * Narrow a caught value to a {@link RaterError}.
+ *
+ * @param value - The caught value to test
+ * @returns `true` when `value` is a `RaterError`
+ *
+ * @example
+ * ```ts
+ * import { isRaterError, RaterError } from '@orkestrel/rater'
+ *
+ * try {
+ * 	throw new RaterError('DESTROYED', 'Rater has been destroyed')
+ * } catch (error) {
+ * 	if (isRaterError(error)) error.code // 'DESTROYED'
+ * }
+ * ```
+ */
 export function isRaterError(value: unknown): value is RaterError {
 	return value instanceof RaterError
 }

@@ -1,386 +1,355 @@
-import type { FieldPath } from '@orkestrel/contract'
-import {
-	factorGroup,
-	isReasonError,
-	quantitativeDefinition,
-	staticFactor,
-	symbolicDefinition,
-} from '@orkestrel/reason'
-import type { ProgramDefinition, ProgramInterface, RaterEventMap } from '@src/core'
-import {
-	aggregateDefinition,
-	createRater,
-	isRaterError,
-	lineDefinition,
-	programDefinition,
-	sumAmounts,
-} from '@src/core'
+import type { ReasonEventMap } from '@orkestrel/reason'
+import type { RaterEventMap } from '@src/core'
+import { check, factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
+import * as core from '@src/core'
+import { createRater, isRaterError, lineDefinition, ratingDefinition } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
-	EXTREME_NUMBERS,
-	TRICKY_KEYS,
 	captureError,
-	createAggregateProgramDefinition,
-	createAuthorityProgramDefinition,
-	createErrorRecorder,
-	createPropertyProgramDefinition,
-	createRatingSubject,
+	createCheckFailureLine,
+	createEngine,
+	createLine,
+	createLookupFailureLine,
 	createRecorder,
+	createSubject,
+	createTotalRecorder,
+	deepFreeze,
 	invokeRaw,
-	recordEmitterEvents,
-	sequence,
 } from '../../setup.js'
 
-// A minimal aggregate program: an `amount`-summing aggregate (optionally partitioned
-// by `by`) over a line that always rates to a finite `0` — so status is deterministically
-// `eligible` and the only variable under test is the aggregation itself.
-function sumsProgram(fields: readonly FieldPath[] = ['amount'], by?: FieldPath): ProgramDefinition {
-	return programDefinition(
-		'sums',
-		'Sums',
-		[
-			lineDefinition(
-				'line',
-				'Line',
-				quantitativeDefinition('quote', 'Quote', [
-					factorGroup('base', 'sum', [staticFactor('base', 0)]),
-				]),
+describe('Rater — line selection', () => {
+	it('evaluates only the supplied lines, exactly once per line', () => {
+		const engine = createEngine()
+		const recorder = createRecorder<ReasonEventMap['reason']>()
+		engine.emitter.on('reason', recorder.handler)
+		const rater = createRater({ engine })
+		const a = createLine('a', 10)
+		const b = createLine('b', 20)
+		const result = rater.rate([a, b], createSubject())
+		expect(result.lines.map((line) => line.id)).toEqual(['a', 'b'])
+		expect(recorder.count).toBe(2)
+		expect(
+			recorder.calls.map((call) =>
+				call[0].reasoning === 'quantitative' ? call[0].value : undefined,
 			),
-		],
-		{ aggregate: aggregateDefinition(fields, by) },
-	)
-}
-
-describe('Rater — rate overloads', () => {
-	it('rates a single subject to a SubjectResult in manager insertion order', () => {
-		const rater = createRater({ total: sumAmounts })
-		rater.programs.add(createPropertyProgramDefinition('first'))
-		rater.programs.add(createPropertyProgramDefinition('second'))
-		const result = rater.rate(createRatingSubject())
-		expect(result.subject).toEqual(createRatingSubject())
-		expect(result.programs.map((program) => program.id)).toEqual(['first', 'second'])
-		expect(result.programs[0]?.total).toBe(110)
+		).toEqual([10, 20])
 		rater.destroy()
+		engine.destroy()
 	})
 
-	it('rates an array to an AggregateResult and handles an empty batch', () => {
-		const rater = createRater({ programs: [createAggregateProgramDefinition()] })
-		const result = rater.rate([
-			createRatingSubject({ value: 10 }),
-			createRatingSubject({ value: 20 }),
-		])
-		const emptyRater = createRater()
-		const empty = emptyRater.rate([])
-		expect(result.count).toBe(2)
-		expect(result.subjects).toHaveLength(2)
-		expect(result.sums).toEqual({ value: 30 })
-		expect(empty).toEqual({
-			subjects: [],
-			determinations: [],
-			groups: [],
-			tallies: {},
-			count: 0,
-			sums: {},
-		})
+	it('never evaluates an omitted line, even one authored alongside the rated ones', () => {
+		const engine = createEngine()
+		const recorder = createRecorder<ReasonEventMap['reason']>()
+		engine.emitter.on('reason', recorder.handler)
+		const rater = createRater({ engine })
+		const rated = createLine('rated', 10)
+		const omitted = createLine('omitted', 999)
+		const catalog = ratingDefinition('catalog', 'Catalog', [rated, omitted])
+		const result = rater.rate([rated], createSubject())
+		expect(catalog.lines.map((line) => line.id)).toEqual(['rated', 'omitted'])
+		expect(result.lines.map((line) => line.id)).toEqual(['rated'])
+		expect(recorder.count).toBe(1)
+		expect(
+			recorder.calls.some((call) => call[0].reasoning === 'quantitative' && call[0].value === 999),
+		).toBe(false)
 		rater.destroy()
-		emptyRater.destroy()
+		engine.destroy()
 	})
 })
 
-describe('Rater — batch aggregates', () => {
-	it('computes raw aggregate sums, groups by location, and gates whole-batch plus per-group determinations', () => {
-		const rater = createRater({ total: sumAmounts, programs: [createAggregateProgramDefinition()] })
-		const result = rater.rate([
-			createRatingSubject({ id: 'a', value: 90, location: 'north' }),
-			createRatingSubject({ id: 'b', value: 60, location: 'north' }),
-			createRatingSubject({ id: 'c', value: 5, location: undefined }),
-		])
-		expect(result.sums).toEqual({ value: 155 })
-		expect(result.groups).toEqual([
-			{ key: 'north', count: 2, sums: { value: 150 } },
-			{ key: '', count: 1, sums: { value: 5 } },
-		])
-		expect(result.determinations.map((entry) => [entry.id, entry.applied])).toEqual([
-			['over-limit', true],
-			['over-limit', true],
-			['over-limit', false],
-		])
-		expect(result.subjects[0]?.programs[0]?.determinations).toEqual([])
+describe('Rater — result shape', () => {
+	it('LineResult carries exactly id, name, worksheet, success — amount only on success', () => {
+		const rater = createRater()
+		const result = rater.rate(
+			[createLine('ok', 10), createLookupFailureLine('bad')],
+			createSubject({ region: 'north' }),
+		)
+		const ok = result.lines.find((line) => line.id === 'ok')
+		const bad = result.lines.find((line) => line.id === 'bad')
+		if (ok === undefined || bad === undefined) throw new Error('expected both line results')
+		expect(Object.keys(ok)).toEqual(['id', 'name', 'amount', 'worksheet', 'success'])
+		expect(Object.keys(bad)).toEqual(['id', 'name', 'worksheet', 'success'])
 		rater.destroy()
 	})
 
-	it('completes tallies for every status, keyed by program id', () => {
-		const rater = createRater({ total: sumAmounts, programs: [createAggregateProgramDefinition()] })
-		const result = rater.rate([
-			createRatingSubject({ value: 10 }),
-			createRatingSubject({ value: 20 }),
-		])
-		const tally = result.tallies.portfolio
-		expect(Object.keys(tally)).toEqual([
-			'ineligible',
-			'referral',
-			'conditional',
-			'unrated',
-			'eligible',
-		])
-		expect(tally.eligible.count).toBe(2)
-		expect(tally.eligible.sums).toEqual({ value: 30 })
-		expect(tally.ineligible.count).toBe(0)
+	it('RatingResult carries exactly lines and success — total only when defined', () => {
+		const rater = createRater()
+		const withTotal = rater.rate([createLine('a', 10)], createSubject())
+		const withoutTotal = rater.rate(
+			[createLookupFailureLine('bad')],
+			createSubject({ region: 'north' }),
+		)
+		expect(Object.keys(withTotal)).toEqual(['lines', 'total', 'success'])
+		expect(Object.keys(withoutTotal)).toEqual(['lines', 'success'])
+		rater.destroy()
+	})
+
+	it('the barrel exposes none of the removed program-era symbols', () => {
+		const removed = [
+			'combineEligibilities',
+			'isEligibility',
+			'deriveStatus',
+			'decideEligibility',
+			'aggregateSums',
+			'tallySubject',
+			'passDefinition',
+			'noticeDefinition',
+			'aggregateDefinition',
+			'interpolateMessage',
+			'rulingDefinition',
+			'isRuling',
+			'isNotice',
+			'isPassDefinition',
+			'isAggregateDefinition',
+			'isRulings',
+			'isDecision',
+			'isStatus',
+			'isEffect',
+			'isProgramDefinition',
+			'describeComparison',
+			'describeValue',
+			'describePremise',
+			'describeExpression',
+			'logicalPremises',
+			'findRule',
+			'rulesToDeterminations',
+			'authorityToDeterminations',
+			'noticesToDeterminations',
+			'filterLineDeterminations',
+			'filterProgramDeterminations',
+			'deriveDeterminationEligibility',
+			'hasReservedKey',
+			'assertSubject',
+			'aggregateGroups',
+			'aggregateProjection',
+			'aggregateRecord',
+			'emptySums',
+			'emptyTallies',
+			'completeTallies',
+			'Program',
+			'ProgramManager',
+		]
+		for (const name of removed) {
+			expect(Object.hasOwn(core, name)).toBe(false)
+		}
+	})
+})
+
+describe('Rater — quantitative-only dispatch', () => {
+	it('dispatches only quantitative definitions when the injected engine also carries a logical reasoner', () => {
+		const engine = createEngine({ logical: true })
+		const recorder = createRecorder<ReasonEventMap['reason']>()
+		engine.emitter.on('reason', recorder.handler)
+		const rater = createRater({ engine })
+		rater.rate([createLine('a', 10), createLine('b', 20)], createSubject())
+		expect(recorder.count).toBe(2)
+		expect(recorder.calls.every((call) => call[0].reasoning === 'quantitative')).toBe(true)
+		rater.destroy()
+		engine.destroy()
+	})
+
+	it('a self-owned rater rates correctly though no logical reasoner exists anywhere in the process', () => {
+		const rater = createRater()
+		const result = rater.rate([createLine('a', 10)], createSubject())
+		expect(result.success).toBe(true)
+		expect(result.total).toBe(10)
+		rater.destroy()
+	})
+})
+
+describe('Rater — rating failures', () => {
+	it('a missing lookup key with no fallback on a required factor fails the line and the rating', () => {
+		const rater = createRater()
+		const result = rater.rate([createLookupFailureLine('line')], createSubject({ region: 'north' }))
+		const line = result.lines[0]
+		if (line === undefined) throw new Error('expected a line result')
+		expect(line.success).toBe(false)
+		expect(line.amount).toBeUndefined()
+		expect(line.worksheet.errors.length).toBeGreaterThan(0)
+		expect(result.success).toBe(false)
+		rater.destroy()
+	})
+
+	it('a failed required check factor fails the line and the rating', () => {
+		const rater = createRater()
+		const result = rater.rate([createCheckFailureLine('line')], createSubject({ age: 25 }))
+		const line = result.lines[0]
+		if (line === undefined) throw new Error('expected a line result')
+		expect(line.success).toBe(false)
+		expect(line.amount).toBeUndefined()
+		expect(line.worksheet.errors.length).toBeGreaterThan(0)
+		expect(result.success).toBe(false)
+		rater.destroy()
+	})
+})
+
+describe('Rater — totals', () => {
+	it('sums only the successful lines when some fail', () => {
+		const rater = createRater()
+		const result = rater.rate(
+			[createLine('good', 10), createLookupFailureLine('bad')],
+			createSubject({ region: 'north' }),
+		)
+		expect(result.total).toBe(10)
+		expect(result.success).toBe(false)
+		rater.destroy()
+	})
+
+	it('total is undefined when every line fails', () => {
+		const rater = createRater()
+		const result = rater.rate(
+			[createLookupFailureLine('bad1'), createCheckFailureLine('bad2')],
+			createSubject({ region: 'north', age: 25 }),
+		)
+		expect(result.total).toBeUndefined()
+		expect(result.success).toBe(false)
+		rater.destroy()
+	})
+
+	it('a custom total handler overrides the default and receives the rated lines', () => {
+		const recorder = createTotalRecorder(999)
+		const rater = createRater({ total: recorder.handler })
+		const result = rater.rate([createLine('a', 10)], createSubject())
+		expect(result.total).toBe(999)
+		expect(recorder.count).toBe(1)
+		expect(recorder.calls[0]).toBe(result.lines)
+		rater.destroy()
+	})
+
+	it('an empty line list rates successfully with an undefined total', () => {
+		const rater = createRater()
+		const result = rater.rate([], createSubject())
+		expect(result).toEqual({ lines: [], success: true })
+		rater.destroy()
+	})
+})
+
+describe('Rater — immutability', () => {
+	it('never mutates a frozen subject, frozen line definitions, or a frozen rating definition', () => {
+		const subject = deepFreeze(createSubject({ region: 'north' }))
+		const line = deepFreeze(createLookupFailureLine('line'))
+		const rating = deepFreeze(ratingDefinition('r', 'R', [line]))
+		const beforeSubject = structuredClone(subject)
+		const beforeRating = structuredClone(rating)
+		const rater = createRater()
+		expect(() => rater.rate(rating, subject)).not.toThrow()
+		expect(subject).toEqual(beforeSubject)
+		expect(rating).toEqual(beforeRating)
+		rater.destroy()
+	})
+})
+
+describe('Rater — engine ownership and destroy', () => {
+	it('destroy is idempotent', () => {
+		const rater = createRater()
+		rater.destroy()
+		expect(() => rater.destroy()).not.toThrow()
+	})
+
+	it('rate after destroy throws DESTROYED', () => {
+		const rater = createRater()
+		rater.destroy()
+		const error = captureError(() => rater.rate([], createSubject()))
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DESTROYED')
+	})
+
+	it('an injected engine survives the rater that used it being destroyed', () => {
+		const engine = createEngine()
+		const rater = createRater({ engine })
+		rater.destroy()
+		const result = engine.reason(createSubject(), createLine('a', 10).rate)
+		expect(result.success).toBe(true)
+		engine.destroy()
+	})
+
+	it('a self-owned rater leaves no way to rate once destroyed', () => {
+		const rater = createRater()
+		rater.destroy()
+		const error = captureError(() => rater.rate([createLine('a', 10)], createSubject()))
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DESTROYED')
+	})
+
+	it('construction hooks receive the rate event exactly once before destroy tears the emitter down', () => {
+		const recorder = createRecorder<RaterEventMap['rate']>()
+		const rater = createRater({ on: { rate: recorder.handler } })
+		rater.rate([createLine('a', 10)], createSubject())
+		expect(recorder.count).toBe(1)
+		rater.destroy()
+		expect(recorder.count).toBe(1)
+	})
+
+	it('the emitter getter remains accessible after destroy, though the underlying emitter is destroyed', () => {
+		const rater = createRater()
+		rater.destroy()
+		const emitter = rater.emitter
+		expect(emitter.destroyed).toBe(true)
+	})
+})
+
+describe('Rater — rate overloads', () => {
+	it('the array-of-lines and rating-definition overloads produce equal results for equal lines', () => {
+		const lines = [createLine('a', 10), createLine('b', 20)]
+		const definition = ratingDefinition('r', 'R', lines)
+		const subject = createSubject()
+		const rater = createRater()
+		const fromArray = rater.rate(lines, subject)
+		const fromDefinition = rater.rate(definition, subject)
+		expect(fromArray).toEqual(fromDefinition)
+		rater.destroy()
+	})
+})
+
+describe('Rater — errors', () => {
+	it('throws DEFINITION for an input that is neither a line array nor a rating definition', () => {
+		const rater = createRater()
+		const error = captureError(() =>
+			invokeRaw(rater, rater.rate, [{ bogus: true }, createSubject()]),
+		)
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DEFINITION')
+		rater.destroy()
+	})
+
+	it('throws MISMATCH for a non-record subject', () => {
+		const rater = createRater()
+		const error = captureError(() => invokeRaw(rater, rater.rate, [[], 'not-a-record']))
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('MISMATCH')
 		rater.destroy()
 	})
 })
 
 describe('Rater — events', () => {
-	it('fires post-hoc subject, determination, decision, and aggregate events in order', () => {
-		const rater = createRater({
-			total: sumAmounts,
-			programs: [createPropertyProgramDefinition(), createAuthorityProgramDefinition()],
-		})
-		const events = recordEmitterEvents(rater.emitter, {
-			rate: createRecorder<RaterEventMap['rate']>(),
-			aggregate: createRecorder<RaterEventMap['aggregate']>(),
-			determine: createRecorder<RaterEventMap['determine']>(),
-			decide: createRecorder<RaterEventMap['decide']>(),
-		})
-		rater.rate([
-			createRatingSubject({ coastal: true, seats: 10 }),
-			createRatingSubject({ coastal: false, seats: 10 }),
-		])
-		expect(events.rate.count).toBe(2)
-		expect(events.aggregate.count).toBe(1)
-		expect(events.determine.calls.map((call) => call[0].id)).toEqual([
-			'flag-coastal',
-			'rated',
-			'rated',
-		])
-		expect(events.decide.count).toBe(2)
-		expect(events.aggregate.calls[0]?.[0].count).toBe(2)
-		rater.destroy()
-	})
-
-	it('construction hooks receive events and a throwing listener is isolated via the error handler', () => {
-		const rate = createRecorder<RaterEventMap['rate']>()
-		const error = createErrorRecorder()
-		const rater = createRater({
-			programs: [createPropertyProgramDefinition()],
-			on: {
-				rate: rate.handler,
-				determine: () => {
-					throw new Error('determine failed')
-				},
-			},
-			error: error.handler,
-		})
-		const result = rater.rate(createRatingSubject({ coastal: true }))
-		expect(result.programs).toHaveLength(1)
-		expect(rate.count).toBe(1)
-		expect(error.count).toBe(2)
-		expect(error.calls[0]?.[1]).toBe('determine')
-		rater.destroy()
-	})
-})
-
-describe('Rater — errors and destroy', () => {
-	it('throws MISMATCH for non-record or reserved-key subjects', () => {
+	it('fires the rate event exactly once per rate() call, carrying the subject and the result', () => {
 		const rater = createRater()
-		const nonRecord = captureError(() => invokeRaw(rater, rater.rate, ['bad']))
-		const reserved = captureError(() => rater.rate({ aggregate: {} }))
-		if (!isRaterError(nonRecord)) throw new Error('expected a RaterError')
-		if (!isRaterError(reserved)) throw new Error('expected a RaterError')
-		expect(nonRecord.code).toBe('MISMATCH')
-		expect(reserved.code).toBe('MISMATCH')
-		rater.destroy()
-	})
-
-	it('destroy is idempotent and gates rate plus held manager references with DESTROYED', () => {
-		const rater = createRater({ programs: [createPropertyProgramDefinition()] })
-		const programs = rater.programs
-		rater.destroy()
-		rater.destroy()
-		const rate = captureError(() => rater.rate(createRatingSubject()))
-		const add = captureError(() => programs.add(createPropertyProgramDefinition('next')))
-		const list = captureError(() => programs.programs())
-		if (!isRaterError(rate)) throw new Error('expected a RaterError')
-		if (!isRaterError(add)) throw new Error('expected a RaterError')
-		if (!isRaterError(list)) throw new Error('expected a RaterError')
-		expect(rate.code).toBe('DESTROYED')
-		expect(add.code).toBe('DESTROYED')
-		expect(list.code).toBe('DESTROYED')
-	})
-})
-
-describe('Rater — numeric quirks', () => {
-	it('sums only finite field values, skipping Infinity, -Infinity, and NaN', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const result = rater.rate([
-			{ id: 'a', amount: 10 },
-			{ id: 'b', amount: Number.POSITIVE_INFINITY },
-			{ id: 'c', amount: 20 },
-			{ id: 'd', amount: Number.NEGATIVE_INFINITY },
-			{ id: 'e', amount: Number.NaN },
-			{ id: 'f', amount: 5 },
-		])
-		expect(result.sums.amount).toBe(35)
-		rater.destroy()
-	})
-
-	it('accumulates -0 field values as positive zero', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const result = rater.rate([
-			{ id: 'a', amount: -0 },
-			{ id: 'b', amount: -0 },
-		])
-		expect(Object.is(result.sums.amount, 0)).toBe(true)
-		expect(Object.is(result.sums.amount, -0)).toBe(false)
-		rater.destroy()
-	})
-
-	it('overflows finite EXTREME_NUMBERS to Infinity and leaves an unmapped field at zero', () => {
-		const rater = createRater({ programs: [sumsProgram(['amount', 'missing'])] })
-		const subjects = EXTREME_NUMBERS.map((amount, index) => ({ id: `s${index}`, amount }))
-		const result = rater.rate(subjects)
-		expect(result.sums.amount).toBe(Number.POSITIVE_INFINITY)
-		expect(Object.is(result.sums.missing, 0)).toBe(true)
+		const recorder = createRecorder<RaterEventMap['rate']>()
+		rater.emitter.on('rate', recorder.handler)
+		const subject = createSubject()
+		const result = rater.rate([createLine('a', 10)], subject)
+		expect(recorder.count).toBe(1)
+		expect(recorder.calls[0]).toEqual([subject, result])
 		rater.destroy()
 	})
 })
 
-describe('Rater — scale', () => {
-	it('rates hundreds of subjects preserving order, count, and exact representable sums', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const subjects = sequence(500, 1).map((amount) => ({ id: `s${amount}`, amount }))
-		const result = rater.rate(subjects)
-		expect(result.count).toBe(500)
-		expect(result.subjects).toHaveLength(500)
-		expect(result.sums.amount).toBe((500 * 501) / 2)
-		expect(result.subjects[0]?.subject).toBe(subjects[0])
-		expect(result.subjects[499]?.subject).toBe(subjects[499])
-		rater.destroy()
-	})
-})
-
-describe('Rater — group key coercion', () => {
-	it('collapses numeric and string group keys through String coercion and merges -0 with 0', () => {
-		const rater = createRater({ programs: [sumsProgram(['amount'], 'g')] })
-		const result = rater.rate([
-			{ id: 'a', g: 7, amount: 1 },
-			{ id: 'b', g: '7', amount: 2 },
-			{ id: 'c', g: -0, amount: 4 },
-			{ id: 'd', g: 0, amount: 16 },
-			{ id: 'e', g: true, amount: 8 },
-		])
-		expect(result.groups).toEqual([
-			{ key: '7', count: 2, sums: { amount: 3 } },
-			{ key: '0', count: 2, sums: { amount: 20 } },
-			{ key: 'true', count: 1, sums: { amount: 8 } },
-		])
-		rater.destroy()
-	})
-
-	it('groups missing and explicit undefined partition keys under the blank string', () => {
-		const rater = createRater({ programs: [sumsProgram(['amount'], 'g')] })
-		const result = rater.rate([
-			{ id: 'a', amount: 1 },
-			{ id: 'b', g: undefined, amount: 2 },
-			{ id: 'c', g: 'x', amount: 4 },
-		])
-		expect(result.groups).toEqual([
-			{ key: '', count: 2, sums: { amount: 3 } },
-			{ key: 'x', count: 1, sums: { amount: 4 } },
-		])
-		rater.destroy()
-	})
-
-	it('keys adversarial group values verbatim in first-seen order', () => {
-		const rater = createRater({ programs: [sumsProgram(['amount'], 'g')] })
-		const subjects = TRICKY_KEYS.map((g, index) => ({ id: `s${index}`, g, amount: index }))
-		const result = rater.rate(subjects)
-		expect(result.groups.map((group) => group.key)).toEqual([...TRICKY_KEYS])
-		expect(result.groups).toHaveLength(TRICKY_KEYS.length)
-		expect(result.groups.every((group) => group.count === 1)).toBe(true)
-		rater.destroy()
-	})
-})
-
-describe('Rater — batch edge cases', () => {
-	it('rejects a batch up-front for a reserved-key subject without emitting', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const events = recordEmitterEvents(rater.emitter, {
-			rate: createRecorder<RaterEventMap['rate']>(),
-			aggregate: createRecorder<RaterEventMap['aggregate']>(),
-		})
-		const error = captureError(() =>
-			rater.rate([
-				{ id: 'ok', amount: 1 },
-				{ id: 'bad', outcome: {} },
+describe('Rater — labels', () => {
+	it('threads the labels option into a resolved Premise.label', () => {
+		const line = lineDefinition(
+			'line',
+			'Line',
+			quantitativeDefinition('quote', 'Quote', [
+				factorGroup('group', 'sum', [
+					staticFactor('flag', 10, { checks: [check('age', 'above', 18)] }),
+				]),
 			]),
 		)
-		if (!isRaterError(error)) throw new Error('expected a RaterError')
-		expect(error.code).toBe('MISMATCH')
-		expect(events.rate.count).toBe(0)
-		expect(events.aggregate.count).toBe(0)
-		rater.destroy()
-	})
-
-	it('does not treat a nested reserved key as reserved', () => {
-		const rater = createRater({ programs: [sumsProgram()] })
-		const subject = { id: 's', data: { aggregate: 1, outcome: 2 }, amount: 5 }
-		const result = rater.rate(subject)
-		expect(result.subject).toBe(subject)
-		expect(result.programs).toHaveLength(1)
-		rater.destroy()
-	})
-
-	it('surfaces line rating errors in-result while completing the whole batch', () => {
-		const program = programDefinition('faulty', 'Faulty', [
-			lineDefinition(
-				'line',
-				'Line',
-				quantitativeDefinition('quote', 'Quote', [
-					factorGroup('base', 'sum', [staticFactor('boom', Number.POSITIVE_INFINITY)]),
-				]),
-			),
-		])
-		const rater = createRater({ validate: false, programs: [program] })
-		const result = rater.rate([
-			{ id: 'a', amount: 1 },
-			{ id: 'b', amount: 2 },
-		])
-		expect(result.count).toBe(2)
-		for (const rated of result.subjects) {
-			const outcome = rated.programs[0]
-			if (outcome === undefined) throw new Error('expected a program result')
-			expect(outcome.success).toBe(false)
-			// The program itself ran no passes, so the top-level trace/errors stay
-			// empty — the failure surfaces on the line's own worksheet instead.
-			expect(outcome.lines[0]?.worksheet?.errors.length).toBeGreaterThan(0)
-			expect(outcome.status).toBe('unrated')
-		}
-		rater.destroy()
-	})
-
-	it('validate:false with a pass reasoning the engine has no reasoner for — pins the observed contract', () => {
-		const rater = createRater({ validate: false })
-		// isProgramDefinition would reject a symbolic pass.definition (PassDefinition
-		// only allows logical/quantitative) — validate:false skips that check, and
-		// invokeRaw bypasses the statically-typed add() signature to construct it.
-		const definition = {
-			id: 'unregistered',
-			name: 'Unregistered',
-			lines: [],
-			passes: [{ definition: symbolicDefinition('e', 'E', []) }],
-		}
-		const program: ProgramInterface = invokeRaw(rater.programs, rater.programs.add, [definition])
-		const error = captureError(() => program.rate({ id: 's' }))
-		// Observed (this is the locked validate:false contract, not src behavior we
-		// changed): the shared engine has no symbolic reasoner registered, and
-		// `#engine.reason` throws a raw reason-library `ReasonError('MISSING', …)`
-		// synchronously rather than returning a failure result — `program.rate`
-		// throws an UNCAUGHT `ReasonError`, it never surfaces as a RaterError or a
-		// `success: false` ProgramResult.
-		if (!isReasonError(error)) throw new Error('expected a ReasonError')
-		expect(error.code).toBe('MISSING')
-		expect(error.context).toEqual({ definition: 'e', reasoning: 'symbolic' })
+		const rater = createRater({ labels: { age: 'Age' } })
+		const result = rater.rate([line], createSubject({ age: 25 }))
+		const premise = result.lines[0]?.worksheet.groups[0]?.factors[0]?.premises[0]
+		if (premise === undefined) throw new Error('expected a premise')
+		expect(premise.label).toBe('Age')
 		rater.destroy()
 	})
 })

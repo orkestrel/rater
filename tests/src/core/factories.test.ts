@@ -1,142 +1,85 @@
-import { logicalDefinition } from '@orkestrel/reason'
 import {
-	aggregateDefinition,
-	createProgram,
-	createProgramManager,
 	createRater,
-	isRaterError,
+	isLineDefinition,
+	isRatingDefinition,
 	lineDefinition,
-	noticeDefinition,
-	passDefinition,
-	programDefinition,
-	rulingDefinition,
+	ratingDefinition,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import {
-	captureError,
-	createEngine,
-	createRatingDefinition,
-	createRatingSubject,
-	invokeRaw,
-} from '../../setup.js'
+import { createEngine, createLine, createSubject } from '../../setup.js'
 
 describe('factories — createRater', () => {
-	it('builds a rater with no programs and seeds programs from options', () => {
-		const empty = createRater()
-		expect(empty.programs.size).toBe(0)
-		empty.destroy()
+	it('creates a self-owned rater usable immediately', () => {
+		const rater = createRater()
+		const result = rater.rate([], createSubject())
+		expect(result.success).toBe(true)
+		rater.destroy()
+	})
 
-		const rate = createRatingDefinition()
-		const seeded = createRater({
-			programs: [programDefinition('seed', 'Seed', [lineDefinition('line', 'Line', rate)])],
+	it('creates a rater over an injected engine that survives its destroy', () => {
+		const engine = createEngine()
+		const rater = createRater({ engine })
+		const result = rater.rate([createLine('a', 10)], createSubject())
+		expect(result.total).toBe(10)
+		rater.destroy()
+		const stillWorks = engine.reason(createSubject(), createLine('a', 10).rate)
+		expect(stillWorks.success).toBe(true)
+		engine.destroy()
+	})
+})
+
+describe('factories — lineDefinition', () => {
+	it('merges overrides over the required id, name, and rate', () => {
+		const rate = createLine('line', 10).rate
+		const definition = lineDefinition('line', 'Line', rate, {
+			description: 'd',
+			metadata: { a: 1 },
 		})
-		expect(seeded.programs.size).toBe(1)
-		expect(seeded.programs.has('seed')).toBe(true)
-		seeded.destroy()
-	})
-})
-
-describe('factories — createProgram', () => {
-	it('compiles a valid program definition over an injected engine', () => {
-		const engine = createEngine()
-		const rate = createRatingDefinition()
-		const program = createProgram(
-			programDefinition('p1', 'P1', [lineDefinition('line', 'Line', rate)]),
-			engine,
-		)
-		expect(program.id).toBe('p1')
-		expect(program.rate(createRatingSubject()).lines[0]?.amount).toBe(110)
-		engine.destroy()
-	})
-
-	it('throws DEFINITION with the program id in context for a malformed definition', () => {
-		const engine = createEngine()
-		const bad: unknown = { id: 'bad', name: 'Bad', metadata: (): number => 1, lines: [] }
-		const error = captureError(() => invokeRaw(undefined, createProgram, [bad, engine]))
-		if (!isRaterError(error)) throw new Error('expected a RaterError')
-		expect(error.code).toBe('DEFINITION')
-		expect(error.context).toEqual({ program: 'bad' })
-		engine.destroy()
-	})
-
-	it('throws DEFINITION with an undefined program context when the id itself is missing', () => {
-		const engine = createEngine()
-		const error = captureError(() =>
-			invokeRaw(undefined, createProgram, [{ name: 'No id' }, engine]),
-		)
-		if (!isRaterError(error)) throw new Error('expected a RaterError')
-		expect(error.code).toBe('DEFINITION')
-		expect(error.context).toEqual({ program: undefined })
-		engine.destroy()
-	})
-})
-
-describe('factories — createProgramManager', () => {
-	it('builds a manager over the injected engine that compiles, adds, and destroys programs', () => {
-		const engine = createEngine()
-		const rate = createRatingDefinition()
-		const manager = createProgramManager(engine)
-		expect(manager.size).toBe(0)
-		const program = manager.add(
-			programDefinition('p1', 'P1', [lineDefinition('line', 'Line', rate)]),
-		)
-		expect(manager.has('p1')).toBe(true)
-		expect(manager.size).toBe(1)
-		expect(program.rate(createRatingSubject()).lines[0]?.amount).toBe(110)
-		manager.destroy()
-		engine.destroy()
-	})
-})
-
-describe('factories — definition builders', () => {
-	it('programDefinition merges overrides over the required id/name/lines', () => {
-		const definition = programDefinition('p1', 'P1', [], { description: 'd', metadata: { a: 1 } })
 		expect(definition).toEqual({
-			id: 'p1',
-			name: 'P1',
-			lines: [],
+			id: 'line',
+			name: 'Line',
+			rate,
 			description: 'd',
 			metadata: { a: 1 },
 		})
 	})
 
-	it('lineDefinition merges overrides over the required id/name/rate', () => {
-		const rate = createRatingDefinition()
-		const definition = lineDefinition('line', 'Line', rate, { description: 'd' })
-		expect(definition).toEqual({ id: 'line', name: 'Line', rate, description: 'd' })
+	it('omits optional fields when overrides are absent', () => {
+		const rate = createLine('line', 10).rate
+		const definition = lineDefinition('line', 'Line', rate)
+		expect(definition).toEqual({ id: 'line', name: 'Line', rate })
 	})
+})
 
-	it('passDefinition omits line when absent and includes it when present', () => {
-		const definition = logicalDefinition('l', 'L', [])
-		expect(passDefinition(definition)).toEqual({ definition })
-		expect(passDefinition(definition, 'line')).toEqual({ definition, line: 'line' })
-	})
-
-	it('rulingDefinition omits line/message when absent and includes them when present', () => {
-		expect(rulingDefinition('restriction')).toEqual({ effect: 'restriction' })
-		expect(rulingDefinition('referral', 'line', 'Message')).toEqual({
-			effect: 'referral',
-			line: 'line',
-			message: 'Message',
+describe('factories — ratingDefinition', () => {
+	it('merges overrides over the required id, name, and lines', () => {
+		const line = lineDefinition('line', 'Line', createLine('line', 10).rate)
+		const definition = ratingDefinition('r', 'R', [line], { description: 'd', metadata: { a: 1 } })
+		expect(definition).toEqual({
+			id: 'r',
+			name: 'R',
+			lines: [line],
+			description: 'd',
+			metadata: { a: 1 },
 		})
 	})
 
-	it('noticeDefinition omits line when absent and includes it when present', () => {
-		expect(noticeDefinition('n1', 'Message')).toEqual({ id: 'n1', message: 'Message' })
-		expect(noticeDefinition('n1', 'Message', 'line')).toEqual({
-			id: 'n1',
-			message: 'Message',
-			line: 'line',
-		})
+	it('omits optional fields when overrides are absent', () => {
+		const line = lineDefinition('line', 'Line', createLine('line', 10).rate)
+		const definition = ratingDefinition('r', 'R', [line])
+		expect(definition).toEqual({ id: 'r', name: 'R', lines: [line] })
+	})
+})
+
+describe('factories — validator round-trip', () => {
+	it('a built line definition satisfies isLineDefinition', () => {
+		const line = lineDefinition('line', 'Line', createLine('line', 10).rate, { description: 'd' })
+		expect(isLineDefinition(line)).toBe(true)
 	})
 
-	it('aggregateDefinition omits by/gates when absent and includes them when present', () => {
-		expect(aggregateDefinition(['amount'])).toEqual({ fields: ['amount'] })
-		const gates = logicalDefinition('g', 'G', [])
-		expect(aggregateDefinition(['amount'], 'location', gates)).toEqual({
-			fields: ['amount'],
-			by: 'location',
-			gates,
-		})
+	it('a built rating definition satisfies isRatingDefinition', () => {
+		const line = lineDefinition('line', 'Line', createLine('line', 10).rate)
+		const rating = ratingDefinition('r', 'R', [line], { description: 'd' })
+		expect(isRatingDefinition(rating)).toBe(true)
 	})
 })
