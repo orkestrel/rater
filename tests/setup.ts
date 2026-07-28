@@ -241,3 +241,9 @@ export function createLineResult(id: string, amount?: number): LineResult {
 		success: amount !== undefined,
 	}
 }
+
+/** Whether a repository-relative Vue SFC path belongs to the private browser application. */
+export function isBrowserVuePath(path: string): boolean {
+	const normalized = path.replaceAll('\\', '/')
+	return normalized.startsWith('app/browser/')
+}

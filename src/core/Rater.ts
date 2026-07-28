@@ -58,7 +58,10 @@ export class Rater implements RaterInterface {
 	#destroyed = false
 
 	constructor(options?: RaterOptions) {
-		this.#emitter = new Emitter<RaterEventMap>({ on: options?.on, error: options?.error })
+		this.#emitter = new Emitter<RaterEventMap>({
+			...(options?.on === undefined ? {} : { on: options.on }),
+			...(options?.error === undefined ? {} : { error: options.error }),
+		})
 		if (options?.engine === undefined) {
 			this.#engine = createReason({ reasoners: [createQuantitativeReasoner()], bail: false })
 			this.#owned = true

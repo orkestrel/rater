@@ -47,12 +47,18 @@ describe('factories — createRater', () => {
 		const result = rater.rate([line], createSubject())
 
 		expect(result.total).toBe(999)
-		const evidence = result.lines[0].worksheet.groups[0].factors
+		const rated = result.lines[0]
+		if (rated === undefined) throw new Error('Expected one rated line')
+		const group = rated.worksheet.groups[0]
+		if (group === undefined) throw new Error('Expected one worksheet group')
+		const evidence = group.factors
 			.flatMap((factor) => factor.evidence)
 			.find((entry) => entry.field === 'seats')
 		expect(evidence?.label).toBe('Seat Count')
 		expect(recorder.count).toBe(1)
-		expect(recorder.calls[0][1]).toBe(result)
+		const call = recorder.calls[0]
+		if (call === undefined) throw new Error('Expected one recorded call')
+		expect(call[1]).toBe(result)
 
 		rater.destroy()
 		const stillWorks = engine.reason(createSubject(), createLine('a', 10).rate)

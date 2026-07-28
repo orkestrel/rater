@@ -23,7 +23,7 @@ export class RaterError extends Error {
 		super(message)
 		this.name = 'RaterError'
 		this.code = code
-		this.context = context
+		if (context !== undefined) this.context = context
 	}
 }
 
