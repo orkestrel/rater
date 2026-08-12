@@ -61,16 +61,16 @@ export function createRecorder<TArgs extends readonly unknown[]>(): TestRecorder
 
 /** A recorder shaped for a {@link TotalHandler} — records the lines it was called with and returns a fixed sentinel. */
 export interface TestTotalRecorderInterface {
-	readonly calls: readonly (readonly LineResult[])[]
+	readonly calls: ReadonlyArray<readonly LineResult[]>
 	readonly count: number
 	readonly handler: TotalHandler
 }
 
 /** Build a {@link TestTotalRecorderInterface} that always resolves to `sentinel`. */
 export function createTotalRecorder(sentinel: number): TestTotalRecorderInterface {
-	const calls: (readonly LineResult[])[] = []
+	const calls: Array<readonly LineResult[]> = []
 	return {
-		get calls(): readonly (readonly LineResult[])[] {
+		get calls(): ReadonlyArray<readonly LineResult[]> {
 			return calls
 		},
 		get count(): number {

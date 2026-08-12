@@ -12,7 +12,7 @@
 > (`bail: false`), destroyed in `destroy()`. An injected engine MUST be able to dispatch
 > a quantitative definition — one it cannot dispatch surfaces the engine's own error,
 > never wrapped by this package. Every `rate` call fires once through `Rater`'s typed
-> `emitter` (AGENTS §13). Source: [`src/core`](../../src/core). Surfaced through the
+> `emitter` (AGENTS §13). Source: [`src/core`](../src/core). Surfaced through the
 > `@src/core` barrel.
 
 ## Surface
