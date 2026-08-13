@@ -11,13 +11,12 @@ import {
 import * as core from '@src/core'
 import { createRater, isRaterError, lineDefinition, ratingDefinition } from '@src/core'
 import { describe, expect, it } from 'vitest'
+import { captureError, createRecorder } from '@orkestrel/test'
 import {
-	captureError,
 	createCheckFailureLine,
 	createEngine,
 	createLine,
 	createLookupFailureLine,
-	createRecorder,
 	createStubEngine,
 	createSubject,
 	createTotalRecorder,

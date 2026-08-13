@@ -1,12 +1,7 @@
 import { createRater, lineDefinition, RaterError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import {
-	createEngine,
-	createLine,
-	createQuoteRate,
-	createRecorder,
-	createSubject,
-} from '../../setup.js'
+import { createRecorder } from '@orkestrel/test'
+import { createEngine, createLine, createQuoteRate, createSubject } from '../../setup.js'
 
 describe('factories — createRater', () => {
 	it('creates a self-owned rater usable immediately', () => {

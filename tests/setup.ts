@@ -32,33 +32,6 @@ import { lineDefinition } from '@src/core'
 // General primitives
 // ---------------------------------------------------------------------------
 
-/** A real callback that records its calls (AGENTS §16.1) — use instead of a mock. */
-export interface TestRecorderInterface<TArgs extends readonly unknown[]> {
-	readonly calls: readonly TArgs[]
-	readonly count: number
-	readonly handler: (...args: TArgs) => void
-	clear(): void
-}
-
-/** Build a fresh {@link TestRecorderInterface} over the given argument tuple. */
-export function createRecorder<TArgs extends readonly unknown[]>(): TestRecorderInterface<TArgs> {
-	const calls: TArgs[] = []
-	return {
-		get calls(): readonly TArgs[] {
-			return calls
-		},
-		get count(): number {
-			return calls.length
-		},
-		handler: (...args: TArgs): void => {
-			calls.push(args)
-		},
-		clear: (): void => {
-			calls.length = 0
-		},
-	}
-}
-
 /** A recorder shaped for a {@link TotalHandler} — records the lines it was called with and returns a fixed sentinel. */
 export interface TestTotalRecorderInterface {
 	readonly calls: ReadonlyArray<readonly LineResult[]>
@@ -80,16 +53,6 @@ export function createTotalRecorder(sentinel: number): TestTotalRecorderInterfac
 			calls.push(lines)
 			return sentinel
 		},
-	}
-}
-
-/** Run `thunk`, returning the thrown value, or `undefined` when it does not throw. */
-export function captureError(thunk: () => unknown): unknown {
-	try {
-		thunk()
-		return undefined
-	} catch (error) {
-		return error
 	}
 }
 
