@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/rater",
-	"version": "0.0.9",
+	"version": "0.0.10",
 	"description": "A typed quantitative rating layer: authored lines are rated against a subject to produce per-line amounts, worksheets, and a derived total. Part of the @orkestrel line.",
 	"keywords": [
 		"quantitative",
