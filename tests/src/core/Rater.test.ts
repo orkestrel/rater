@@ -313,9 +313,9 @@ describe('Rater — rate overloads', () => {
 describe('Rater — errors', () => {
 	it('throws DEFINITION for an input that is neither a line array nor a rating definition', () => {
 		const rater = createRater()
-		const error = captureError(() =>
-			invokeRaw(rater, rater.rate, [{ bogus: true }, createSubject()]),
-		)
+		const rate: unknown = rater.rate
+		if (typeof rate !== 'function') throw new TypeError('rate is not callable')
+		const error = captureError(() => Reflect.apply(rate, rater, [{ bogus: true }, createSubject()]))
 		if (!isRaterError(error)) throw new Error('expected a RaterError')
 		expect(error.code).toBe('DEFINITION')
 		rater.destroy()
@@ -323,7 +323,9 @@ describe('Rater — errors', () => {
 
 	it('throws MISMATCH for a non-record subject', () => {
 		const rater = createRater()
-		const error = captureError(() => invokeRaw(rater, rater.rate, [[], 'not-a-record']))
+		const rate: unknown = rater.rate
+		if (typeof rate !== 'function') throw new TypeError('rate is not callable')
+		const error = captureError(() => Reflect.apply(rate, rater, [[], 'not-a-record']))
 		if (!isRaterError(error)) throw new Error('expected a RaterError')
 		expect(error.code).toBe('MISMATCH')
 		rater.destroy()
@@ -588,11 +590,10 @@ describe('Rater — aggregation edges', () => {
 describe('Rater — errors table', () => {
 	it('throws DEFINITION for a rating-shaped input carrying one invalid line', () => {
 		const rater = createRater()
+		const rate: unknown = rater.rate
+		if (typeof rate !== 'function') throw new TypeError('rate is not callable')
 		const error = captureError(() =>
-			invokeRaw(rater, rater.rate, [
-				{ id: 'r', name: 'R', lines: [{ id: 'bad' }] },
-				createSubject(),
-			]),
+			Reflect.apply(rate, rater, [{ id: 'r', name: 'R', lines: [{ id: 'bad' }] }, createSubject()]),
 		)
 		if (!isRaterError(error)) throw new Error('expected a RaterError')
 		expect(error.code).toBe('DEFINITION')
@@ -603,7 +604,9 @@ describe('Rater — errors table', () => {
 		'throws MISMATCH for the non-record subject %p',
 		(subject) => {
 			const rater = createRater()
-			const error = captureError(() => invokeRaw(rater, rater.rate, [[], subject]))
+			const rate: unknown = rater.rate
+			if (typeof rate !== 'function') throw new TypeError('rate is not callable')
+			const error = captureError(() => Reflect.apply(rate, rater, [[], subject]))
 			if (!isRaterError(error)) throw new Error('expected a RaterError')
 			expect(error.code).toBe('MISMATCH')
 			rater.destroy()
