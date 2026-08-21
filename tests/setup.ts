@@ -56,16 +56,6 @@ export function createTotalRecorder(sentinel: number): TestTotalRecorderInterfac
 	}
 }
 
-/**
- * Invoke `method` with `args` bypassing TypeScript's static parameter checking —
- * for exercising runtime validation against intentionally malformed inputs a
- * correctly-typed call site could never construct.
- */
-export function invokeRaw<T>(thisArg: unknown, method: unknown, args: readonly unknown[]): T {
-	if (typeof method !== 'function') throw new TypeError('invokeRaw target is not callable')
-	return Reflect.apply(method, thisArg, args)
-}
-
 /** Recursively `Object.freeze` a value and every object/array it reaches. */
 export function deepFreeze<T>(value: T): T {
 	if (isArray(value)) {

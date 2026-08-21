@@ -243,7 +243,9 @@ describe('validators — isEvidence', () => {
 			expect(() => {
 				accepted = isEvidence(input)
 			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe([true, false, false, true, true, true][index])
+			expect(accepted, `hostile value ${index}`).toBe(
+				[true, false, false, true, true, true, false, false, false, true, true][index],
+			)
 		}
 	})
 })

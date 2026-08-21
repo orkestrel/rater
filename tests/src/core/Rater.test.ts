@@ -11,7 +11,7 @@ import {
 import * as core from '@src/core'
 import { createRater, isRaterError, lineDefinition, ratingDefinition } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { captureError, createRecorder } from '@orkestrel/test'
+import { captureError, createRecorder, invokeUnchecked } from '@orkestrel/test'
 import {
 	createCheckFailureLine,
 	createEngine,
@@ -21,7 +21,6 @@ import {
 	createSubject,
 	createTotalRecorder,
 	deepFreeze,
-	invokeRaw,
 } from '../../setup.js'
 
 describe('Rater — line selection', () => {
@@ -392,7 +391,7 @@ describe('Rater — defensive engine contract', () => {
 	})
 
 	it('tolerates an engine result missing the errors array via the defensive fallback', () => {
-		const stub = invokeRaw<ReturnType<typeof createStubEngine>>(undefined, createStubEngine, [
+		const stub = invokeUnchecked<ReturnType<typeof createStubEngine>>(undefined, createStubEngine, [
 			{ reasoning: 'logical' },
 		])
 		const rater = createRater({ engine: stub })
