@@ -48,8 +48,8 @@ export const isStage: Guard<Stage> = literalOf('factor', 'group', 'total')
  * Determine whether a value is an exact {@link LineDefinition} record.
  *
  * @remarks
- * Total guard (AGENTS §14): adversarial input (cycles, hostile prototypes)
- * returns `false`, never throws. The record shape is EXACT — an extra key fails.
+ * Total guard: adversarial input (cycles, hostile prototypes) returns `false`,
+ * never throws. The record shape is EXACT — an extra key fails.
  *
  * @param value - The value to test
  * @returns `true` when `value` is a `LineDefinition`
@@ -79,8 +79,8 @@ export function isLineDefinition(value: unknown): value is LineDefinition {
  * Determine whether a value is an exact {@link RatingDefinition} record.
  *
  * @remarks
- * Total guard (AGENTS §14): adversarial input (cycles, hostile prototypes)
- * returns `false`, never throws. The record shape is EXACT — an extra key fails.
+ * Total guard: adversarial input (cycles, hostile prototypes) returns `false`,
+ * never throws. The record shape is EXACT — an extra key fails.
  *
  * @param value - The value to test
  * @returns `true` when `value` is a `RatingDefinition`

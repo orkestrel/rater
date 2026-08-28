@@ -12,8 +12,7 @@
 > (`bail: false`), destroyed in `destroy()`. An injected engine MUST be able to dispatch
 > a quantitative definition — one it cannot dispatch surfaces the engine's own error,
 > never wrapped by this package. Every `rate` call fires once through `Rater`'s typed
-> `emitter` (AGENTS §13). Source: [`src/core`](../src/core). Surfaced through the
-> `@src/core` barrel.
+> `emitter`. Source: [`src/core`](../src/core). Surfaced through the `@src/core` barrel.
 
 ## Surface
 
@@ -43,18 +42,18 @@ rater.emitter.on('rate', (subject, rated) => rated.success)
 rater.destroy()
 ```
 
-`rate` dispatches by input shape — the array-of-lines overload is declared FIRST
-(AGENTS §9.2) so a plain line list resolves to that form; a `RatingDefinition` resolves
-the same way through its own `lines`. Both overloads rate exactly ONE subject — there
-is no batch overload, and the subject must be a plain record or `rate` throws
-`RaterError` `'MISMATCH'`; an input that is neither an array of lines nor a
-`RatingDefinition` throws `RaterError` `'DEFINITION'`. A line that fails to resolve (a
-missing lookup entry, a failed required factor) is a rating FAILURE reported on its
-own `LineResult` (`success: false`, no `amount`, a populated `worksheet.errors`) — the
-caller decides what to do with a failed line; `Rater` only reports exactly what each
-line resolved to. `total` is derived from every line's `amount` by a `TotalHandler`
-(default `sumAmounts`, overridable through `RaterOptions.total`) and counts only the
-lines that succeeded.
+`rate` dispatches by input shape — the array-of-lines overload is declared FIRST so a
+plain line list resolves to that form; a `RatingDefinition` resolves the same way
+through its own `lines`. Both overloads rate exactly ONE subject — there is no batch
+overload, and the subject must be a plain record or `rate` throws `RaterError`
+`'MISMATCH'`; an input that is neither an array of lines nor a `RatingDefinition`
+throws `RaterError` `'DEFINITION'`. A line that fails to resolve (a missing lookup
+entry, a failed required factor) is a rating FAILURE reported on its own `LineResult`
+(`success: false`, no `amount`, a populated `worksheet.errors`) — the caller decides
+what to do with a failed line; `Rater` only reports exactly what each line resolved
+to. `total` is derived from every line's `amount` by a `TotalHandler` (default
+`sumAmounts`, overridable through `RaterOptions.total`) and counts only the lines
+that succeeded.
 
 ### Types
 
@@ -72,7 +71,7 @@ lines that succeeded.
 | `Worksheet`        | interface | `{ id, name, aggregation, precision?, value, groups, steps, trace, errors, success }` — a quantitative definition joined to its result, the rating audit trail. |
 | `LineResult`       | interface | `{ id, name, amount?, worksheet, success }` — one line's rating outcome; `amount` is present ONLY when `success` is `true`.                                     |
 | `RatingResult`     | interface | `{ lines, total?, success }` — a rated outcome across every line of one `rate` call; `success` is `true` only when every line succeeded.                        |
-| `RaterEventMap`    | type      | `Rater`'s push observation surface (AGENTS §13) — `rate(subject, result)`.                                                                                      |
+| `RaterEventMap`    | type      | `Rater`'s push observation surface — `rate(subject, result)`.                                                                                                   |
 | `RaterOptions`     | interface | `{ on?, error?, engine?, total?, labels? }` — input to `createRater`.                                                                                           |
 | `RaterInterface`   | interface | The rating orchestrator over the shared engine — `emitter` + `rate` (array overload declared FIRST) + `destroy`.                                                |
 
@@ -95,8 +94,8 @@ try {
 
 ### Validators
 
-Total guards (AGENTS §14) composed from `@orkestrel/contract` combinators — adversarial
-input (junk, cycles, hostile prototypes) returns `false`, never throws. The guards use
+Total guards composed from `@orkestrel/contract` combinators — adversarial input
+(junk, cycles, hostile prototypes) returns `false`, never throws. The guards use
 two postures based on who produces the value. Authored definitions supplied to this
 package use exact `recordOf` guards because this package owns that input shape; extra
 keys fail. Results returned by a borrowed `RaterInterface` use open `objectOf` guards
@@ -133,8 +132,8 @@ isRatingDefinition({ id: 'r1', name: 'Rating', lines: [] }) // true
 
 ### Helpers
 
-Pure, exported utility functions (AGENTS §4.3) — the definition builders, the evidence
-construction, and the worksheet-joining behind `Rater`'s `rate` projection.
+Pure, exported utility functions — the definition builders, the evidence construction,
+and the worksheet-joining behind `Rater`'s `rate` projection.
 
 | API                | Kind     | Summary                                                                                                   |
 | ------------------ | -------- | --------------------------------------------------------------------------------------------------------- |
@@ -251,14 +250,14 @@ rater.destroy()
 The public methods of `RaterInterface` — one table, keyed by its backticked name,
 every call-signature member listed (the `readonly` data member `emitter` stays off the
 method table). `Rater` exposes exactly its interface's methods, so this doubles as the
-per-instance method surface (AGENTS §22).
+per-instance method surface.
 
 #### `RaterInterface`
 
-The array-of-lines overload of `rate` is declared FIRST (AGENTS §9.2) so a plain line
-list resolves to that form; both overloads rate exactly ONE subject. `destroy()` is
-idempotent — it destroys an OWNED engine (never an injected one), then the emitter LAST
-(AGENTS §13). Afterwards every other method throws `RaterError` `'DESTROYED'`.
+The array-of-lines overload of `rate` is declared FIRST so a plain line list resolves
+to that form; both overloads rate exactly ONE subject. `destroy()` is idempotent — it
+destroys an OWNED engine (never an injected one), then the emitter LAST. Afterwards
+every other method throws `RaterError` `'DESTROYED'`.
 
 | Method    | Returns        | Behavior                                                                                        |
 | --------- | -------------- | ----------------------------------------------------------------------------------------------- |

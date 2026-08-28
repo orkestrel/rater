@@ -132,7 +132,7 @@ export interface RatingResult {
 }
 
 /**
- * The push observation surface of a {@link RaterInterface} (AGENTS §13).
+ * The push observation surface of a {@link RaterInterface}.
  *
  * @remarks
  * `rate` fires once per `rate` call, carrying the rated subject and the result.
@@ -164,8 +164,9 @@ export interface RaterOptions {
  * The rating orchestrator over the shared quantitative reasoning engine.
  *
  * @remarks
- * The array-of-lines `rate` overload is declared FIRST (AGENTS §9.2). Both
- * overloads rate a SINGLE subject — there is no batch-of-subjects overload.
+ * The array-of-lines `rate` overload is declared FIRST so a plain line list
+ * resolves to that form. Both overloads rate a SINGLE subject — there is no
+ * batch-of-subjects overload.
  */
 export interface RaterInterface {
 	readonly emitter: EmitterInterface<RaterEventMap>

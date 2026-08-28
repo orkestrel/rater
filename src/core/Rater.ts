@@ -35,10 +35,10 @@ import { isLineDefinition, isRatingDefinition } from './validators.js'
  * When no `engine` is injected, `Rater` builds and OWNS its own
  * quantitative-only engine (`bail: false`) — Rater performs NO evaluation
  * arithmetic of its own; it only orchestrates and projects. The
- * array-of-lines `rate` overload is declared FIRST (AGENTS §9.2). `destroy()`
- * destroys an OWNED engine, then the emitter LAST (AGENTS §13); an INJECTED
- * engine is never destroyed. Afterwards every other method throws
- * {@link RaterError} `'DESTROYED'`.
+ * array-of-lines `rate` overload is declared FIRST so a plain line list
+ * resolves to that form. `destroy()` destroys an OWNED engine, then the
+ * emitter LAST; an INJECTED engine is never destroyed. Afterwards every
+ * other method throws {@link RaterError} `'DESTROYED'`.
  *
  * @example
  * ```ts
@@ -77,7 +77,7 @@ export class Rater implements RaterInterface {
 		return this.#emitter
 	}
 
-	// Array overload first (AGENTS §9.2) so a plain line list resolves to that form.
+	// Array overload first so a plain line list resolves to that form.
 	rate(lines: readonly LineDefinition[], subject: Subject): RatingResult
 	rate(definition: RatingDefinition, subject: Subject): RatingResult
 	rate(input: readonly LineDefinition[] | RatingDefinition, subject: Subject): RatingResult {
