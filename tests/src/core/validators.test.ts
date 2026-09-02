@@ -1,4 +1,4 @@
-import { logicalDefinition } from '@orkestrel/reason'
+import { createLogicalDefinition } from '@orkestrel/reason'
 import { createHostileValues } from '@orkestrel/test'
 import {
 	createRater,
@@ -80,7 +80,7 @@ describe('validators — isLineDefinition', () => {
 	it('rejects wrong-typed fields', () => {
 		expect(isLineDefinition({ id: 1, name: 'Line', rate })).toBe(false)
 		expect(
-			isLineDefinition({ id: 'line', name: 'Line', rate: logicalDefinition('l', 'L', []) }),
+			isLineDefinition({ id: 'line', name: 'Line', rate: createLogicalDefinition('l', 'L', []) }),
 		).toBe(false)
 		expect(isLineDefinition({ id: 'line', name: 'Line', rate, description: 5 })).toBe(false)
 	})
@@ -555,7 +555,7 @@ describe('validators — isLineResult', () => {
 		errors: [],
 		success: true,
 	}
-	const line = { id: 'quote', name: 'Quote', worksheet, success: true }
+	const line = { id: 'quote', name: 'Quote', worksheet }
 
 	it('admits unknown members and prototypes and keeps amount as a plain number', () => {
 		const candidate = Object.assign(Object.create(null), line, {
@@ -582,10 +582,6 @@ describe('validators — isLineResult', () => {
 			get worksheet(): unknown {
 				return worksheet
 			}
-
-			get success(): boolean {
-				return true
-			}
 		})()
 		expect(isLineResult(candidate)).toBe(true)
 	})
@@ -600,7 +596,6 @@ describe('validators — isLineResult', () => {
 		expect(isLineResult({ ...line, name: 1 })).toBe(false)
 		expect(isLineResult({ ...line, amount: '110' })).toBe(false)
 		expect(isLineResult({ ...line, worksheet: {} })).toBe(false)
-		expect(isLineResult({ ...line, success: 'yes' })).toBe(false)
 	})
 
 	it('refuses every hostile value without throwing', () => {
@@ -646,10 +641,6 @@ describe('validators — isRatingResult closure', () => {
 								errors: [],
 								success: true,
 							}
-						}
-
-						get success(): boolean {
-							return true
 						}
 					})(),
 				]

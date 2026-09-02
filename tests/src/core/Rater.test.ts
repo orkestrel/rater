@@ -2,11 +2,11 @@ import type { LogicalResult, ReasonEventMap } from '@orkestrel/reason'
 import type { RaterEventMap } from '@src/core'
 import { isRecord } from '@orkestrel/contract'
 import {
-	check,
-	factorGroup,
-	fieldFactor,
-	quantitativeDefinition,
-	staticFactor,
+	createCheck,
+	createFactorGroup,
+	createFieldFactor,
+	createQuantitativeDefinition,
+	createStaticFactor,
 } from '@orkestrel/reason'
 import * as core from '@src/core'
 import { createRater, isRaterError, lineDefinition, ratingDefinition } from '@src/core'
@@ -64,7 +64,7 @@ describe('Rater — line selection', () => {
 })
 
 describe('Rater — result shape', () => {
-	it('LineResult carries exactly id, name, worksheet, success — amount only on success', () => {
+	it('LineResult carries exactly id, name, worksheet — amount only on a successful worksheet', () => {
 		const rater = createRater()
 		const result = rater.rate(
 			[createLine('ok', 10), createLookupFailureLine('bad')],
@@ -73,8 +73,8 @@ describe('Rater — result shape', () => {
 		const ok = result.lines.find((line) => line.id === 'ok')
 		const bad = result.lines.find((line) => line.id === 'bad')
 		if (ok === undefined || bad === undefined) throw new Error('expected both line results')
-		expect(Object.keys(ok)).toEqual(['id', 'name', 'amount', 'worksheet', 'success'])
-		expect(Object.keys(bad)).toEqual(['id', 'name', 'worksheet', 'success'])
+		expect(Object.keys(ok)).toEqual(['id', 'name', 'amount', 'worksheet'])
+		expect(Object.keys(bad)).toEqual(['id', 'name', 'worksheet'])
 		rater.destroy()
 	})
 
@@ -171,7 +171,7 @@ describe('Rater — rating failures', () => {
 		const result = rater.rate([createLookupFailureLine('line')], createSubject({ region: 'north' }))
 		const line = result.lines[0]
 		if (line === undefined) throw new Error('expected a line result')
-		expect(line.success).toBe(false)
+		expect(line.worksheet.success).toBe(false)
 		expect(line.amount).toBeUndefined()
 		expect(line.worksheet.errors.length).toBeGreaterThan(0)
 		expect(result.success).toBe(false)
@@ -183,7 +183,7 @@ describe('Rater — rating failures', () => {
 		const result = rater.rate([createCheckFailureLine('line')], createSubject({ age: 25 }))
 		const line = result.lines[0]
 		if (line === undefined) throw new Error('expected a line result')
-		expect(line.success).toBe(false)
+		expect(line.worksheet.success).toBe(false)
 		expect(line.amount).toBeUndefined()
 		expect(line.worksheet.errors.length).toBeGreaterThan(0)
 		expect(result.success).toBe(false)
@@ -349,9 +349,9 @@ describe('Rater — labels', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
-			quantitativeDefinition('quote', 'Quote', [
-				factorGroup('group', 'sum', [
-					staticFactor('flag', 10, { checks: [check('age', 'above', 18)] }),
+			createQuantitativeDefinition('quote', 'Quote', [
+				createFactorGroup('group', 'sum', [
+					createStaticFactor('flag', 10, { checks: [createCheck('age', 'above', 18)] }),
 				]),
 			]),
 		)
@@ -379,7 +379,7 @@ describe('Rater — defensive engine contract', () => {
 		const result = rater.rate([createLine('a', 10)], createSubject())
 		const line = result.lines[0]
 		if (line === undefined) throw new Error('expected a line result')
-		expect(line.success).toBe(false)
+		expect(line.worksheet.success).toBe(false)
 		expect(Object.hasOwn(line, 'amount')).toBe(false)
 		expect(line.worksheet.errors).toContain('e')
 		expect(
@@ -398,7 +398,7 @@ describe('Rater — defensive engine contract', () => {
 		const result = rater.rate([createLine('a', 10)], createSubject())
 		const line = result.lines[0]
 		if (line === undefined) throw new Error('expected a line result')
-		expect(line.success).toBe(false)
+		expect(line.worksheet.success).toBe(false)
 		expect(Object.hasOwn(line, 'amount')).toBe(false)
 		expect(
 			line.worksheet.errors.some((message) => message.includes('Expected quantitative result')),
@@ -414,10 +414,10 @@ describe('Rater — finite guarantees', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
-			quantitativeDefinition('line', 'Line', [
-				factorGroup('g', 'sum', [
-					staticFactor('a', Number.MAX_VALUE),
-					staticFactor('b', Number.MAX_VALUE),
+			createQuantitativeDefinition('line', 'Line', [
+				createFactorGroup('g', 'sum', [
+					createStaticFactor('a', Number.MAX_VALUE),
+					createStaticFactor('b', Number.MAX_VALUE),
 				]),
 			]),
 		)
@@ -425,7 +425,7 @@ describe('Rater — finite guarantees', () => {
 		const result = rater.rate([line], createSubject())
 		const lineResult = result.lines[0]
 		if (lineResult === undefined) throw new Error('expected a line result')
-		expect(lineResult.success).toBe(false)
+		expect(lineResult.worksheet.success).toBe(false)
 		expect(Object.hasOwn(lineResult, 'amount')).toBe(false)
 		expect(lineResult.worksheet.value).toBe(Number.POSITIVE_INFINITY)
 		rater.destroy()
@@ -435,7 +435,7 @@ describe('Rater — finite guarantees', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
-			quantitativeDefinition('line', 'Line', [factorGroup('g', 'sum', [])], {
+			createQuantitativeDefinition('line', 'Line', [createFactorGroup('g', 'sum', [])], {
 				aggregation: 'minimum',
 			}),
 		)
@@ -444,7 +444,7 @@ describe('Rater — finite guarantees', () => {
 		const lineResult = result.lines[0]
 		if (lineResult === undefined) throw new Error('expected a line result')
 		expect(Number.isNaN(lineResult.worksheet.value)).toBe(true)
-		expect(lineResult.success).toBe(false)
+		expect(lineResult.worksheet.success).toBe(false)
 		expect(Object.hasOwn(lineResult, 'amount')).toBe(false)
 		expect(
 			lineResult.worksheet.errors.some((message) => message.toLowerCase().includes('nan')),
@@ -460,20 +460,20 @@ describe('Rater — finite guarantees', () => {
 			lineDefinition(
 				'a',
 				'A',
-				quantitativeDefinition(
+				createQuantitativeDefinition(
 					'a',
 					'A',
-					[factorGroup('g', 'sum', [staticFactor('a', Number.MAX_VALUE)])],
+					[createFactorGroup('g', 'sum', [createStaticFactor('a', Number.MAX_VALUE)])],
 					{ precision: 0 },
 				),
 			),
 			lineDefinition(
 				'b',
 				'B',
-				quantitativeDefinition(
+				createQuantitativeDefinition(
 					'b',
 					'B',
-					[factorGroup('g', 'sum', [staticFactor('b', Number.MAX_VALUE)])],
+					[createFactorGroup('g', 'sum', [createStaticFactor('b', Number.MAX_VALUE)])],
 					{ precision: 0 },
 				),
 			),
@@ -481,7 +481,7 @@ describe('Rater — finite guarantees', () => {
 		const rater = createRater()
 		const result = rater.rate(lines, createSubject())
 		for (const lineResult of result.lines) {
-			expect(lineResult.success).toBe(true)
+			expect(lineResult.worksheet.success).toBe(true)
 			expect(lineResult.amount).toBe(Number.MAX_VALUE)
 		}
 		expect(result.success).toBe(true)
@@ -538,8 +538,8 @@ describe('Rater — hostile subject', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
-			quantitativeDefinition('line', 'Line', [
-				factorGroup('g', 'sum', [fieldFactor('amount', 'amount')]),
+			createQuantitativeDefinition('line', 'Line', [
+				createFactorGroup('g', 'sum', [createFieldFactor('amount', 'amount')]),
 			]),
 		)
 		const rater = createRater()
@@ -552,13 +552,13 @@ describe('Rater — hostile subject', () => {
 })
 
 describe('Rater — aggregation edges', () => {
-	it('an empty-groups definition rates to amount 0, success true', () => {
-		const line = lineDefinition('line', 'Line', quantitativeDefinition('line', 'Line', []))
+	it('an empty-groups definition rates to amount 0 on a successful worksheet', () => {
+		const line = lineDefinition('line', 'Line', createQuantitativeDefinition('line', 'Line', []))
 		const rater = createRater()
 		const result = rater.rate([line], createSubject())
 		const lineResult = result.lines[0]
 		if (lineResult === undefined) throw new Error('expected a line result')
-		expect(lineResult.success).toBe(true)
+		expect(lineResult.worksheet.success).toBe(true)
 		expect(lineResult.amount).toBe(0)
 		expect(result.total).toBe(0)
 		rater.destroy()
@@ -568,10 +568,10 @@ describe('Rater — aggregation edges', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
-			quantitativeDefinition('line', 'Line', [
-				factorGroup('g', 'average', [
-					staticFactor('a', 5, { weight: 0 }),
-					staticFactor('b', 10, { weight: 0 }),
+			createQuantitativeDefinition('line', 'Line', [
+				createFactorGroup('g', 'average', [
+					createStaticFactor('a', 5, { weight: 0 }),
+					createStaticFactor('b', 10, { weight: 0 }),
 				]),
 			]),
 		)
@@ -581,7 +581,7 @@ describe('Rater — aggregation edges', () => {
 		if (lineResult === undefined) throw new Error('expected a line result')
 		expect(lineResult.worksheet.groups[0]?.value).toBe(0)
 		expect(lineResult.amount).toBe(0)
-		expect(lineResult.success).toBe(true)
+		expect(lineResult.worksheet.success).toBe(true)
 		rater.destroy()
 	})
 })
@@ -618,10 +618,15 @@ describe('Rater — precision', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
-			quantitativeDefinition(
+			createQuantitativeDefinition(
 				'line',
 				'Line',
-				[factorGroup('g', 'sum', [staticFactor('a', 0.1), staticFactor('b', 0.2)])],
+				[
+					createFactorGroup('g', 'sum', [
+						createStaticFactor('a', 0.1),
+						createStaticFactor('b', 0.2),
+					]),
+				],
 				{ precision: 2 },
 			),
 		)
@@ -638,10 +643,15 @@ describe('Rater — precision', () => {
 		const line = lineDefinition(
 			'line',
 			'Line',
-			quantitativeDefinition(
+			createQuantitativeDefinition(
 				'line',
 				'Line',
-				[factorGroup('g', 'sum', [staticFactor('a', 0.1), staticFactor('b', 0.2)])],
+				[
+					createFactorGroup('g', 'sum', [
+						createStaticFactor('a', 0.1),
+						createStaticFactor('b', 0.2),
+					]),
+				],
 				{ precision: 2 },
 			),
 		)

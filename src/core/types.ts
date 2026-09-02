@@ -107,14 +107,14 @@ export interface Worksheet {
  * @remarks
  * `worksheet` is always present — even a failed evaluation resolves to a
  * type-shaped failure worksheet, so a `LineResult` is always constructible.
- * `amount` is present ONLY when `success` is `true`.
+ * The worksheet also carries the line's outcome: `amount` is present ONLY
+ * when `worksheet.success` is `true`.
  */
 export interface LineResult {
 	readonly id: string
 	readonly name: string
 	readonly amount?: number
 	readonly worksheet: Worksheet
-	readonly success: boolean
 }
 
 /**
@@ -123,7 +123,7 @@ export interface LineResult {
  * @remarks
  * `total` is derived by the {@link TotalHandler} (default {@link sumAmounts})
  * over `lines` — only successfully rated lines carry an `amount`. `success`
- * is `true` only when every line succeeded.
+ * is `true` only when every line's `worksheet.success` is `true`.
  */
 export interface RatingResult {
 	readonly lines: readonly LineResult[]

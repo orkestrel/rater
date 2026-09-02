@@ -16,15 +16,15 @@ import type { LineDefinition, LineResult, TotalHandler, Worksheet } from '@src/c
 import { createEmitter } from '@orkestrel/emitter'
 import { isArray, isRecord } from '@orkestrel/contract'
 import {
-	check,
+	createCheck,
+	createFactorGroup,
+	createFieldFactor,
 	createLogicalReasoner,
+	createLookupFactor,
+	createQuantitativeDefinition,
 	createQuantitativeReasoner,
 	createReason,
-	factorGroup,
-	fieldFactor,
-	lookupFactor,
-	quantitativeDefinition,
-	staticFactor,
+	createStaticFactor,
 } from '@orkestrel/reason'
 import { lineDefinition } from '@src/core'
 
@@ -88,8 +88,8 @@ export function createSubject(overrides?: Readonly<Record<string, unknown>>): Su
 
 /** A quantitative definition that always resolves to `value`, regardless of the subject. */
 export function createStaticRate(id: string, value: number): QuantitativeDefinition {
-	return quantitativeDefinition(id, id, [
-		factorGroup('group', 'sum', [staticFactor('value', value)]),
+	return createQuantitativeDefinition(id, id, [
+		createFactorGroup('group', 'sum', [createStaticFactor('value', value)]),
 	])
 }
 
@@ -100,10 +100,13 @@ export function createLine(id: string, value: number): LineDefinition {
 
 /** A quantitative definition rating `base` (100) plus `seats`, with a checked field factor. */
 export function createQuoteRate(): QuantitativeDefinition {
-	return quantitativeDefinition('quote', 'Quote', [
-		factorGroup('charge', 'sum', [
-			staticFactor('base', 100),
-			fieldFactor('seats', 'seats', { fallback: 0, checks: [check('seats', 'above', 0)] }),
+	return createQuantitativeDefinition('quote', 'Quote', [
+		createFactorGroup('charge', 'sum', [
+			createStaticFactor('base', 100),
+			createFieldFactor('seats', 'seats', {
+				fallback: 0,
+				checks: [createCheck('seats', 'above', 0)],
+			}),
 		]),
 	])
 }
@@ -113,9 +116,9 @@ export function createLookupFailureLine(id: string): LineDefinition {
 	return lineDefinition(
 		id,
 		id,
-		quantitativeDefinition(id, id, [
-			factorGroup('group', 'sum', [
-				lookupFactor('region', 'region', { east: 10, west: 20 }, { required: true }),
+		createQuantitativeDefinition(id, id, [
+			createFactorGroup('group', 'sum', [
+				createLookupFactor('region', 'region', { east: 10, west: 20 }, { required: true }),
 			]),
 		]),
 	)
@@ -126,9 +129,12 @@ export function createCheckFailureLine(id: string): LineDefinition {
 	return lineDefinition(
 		id,
 		id,
-		quantitativeDefinition(id, id, [
-			factorGroup('group', 'sum', [
-				staticFactor('flag', 5, { checks: [check('age', 'above', 65)], required: true }),
+		createQuantitativeDefinition(id, id, [
+			createFactorGroup('group', 'sum', [
+				createStaticFactor('flag', 5, {
+					checks: [createCheck('age', 'above', 65)],
+					required: true,
+				}),
 			]),
 		]),
 	)
@@ -184,13 +190,16 @@ export function createWorksheet(overrides?: Partial<Worksheet>): Worksheet {
 	}
 }
 
-/** A minimal `LineResult` carrying only `amount` — for `sumAmounts` edge cases. */
+/**
+ * A minimal `LineResult` carrying only `amount` — for `sumAmounts` edge cases. Its
+ * worksheet mirrors the real rating path: `worksheet.success` is `true` exactly when
+ * an `amount` is supplied.
+ */
 export function createLineResult(id: string, amount?: number): LineResult {
 	return {
 		id,
 		name: id,
 		...(amount === undefined ? {} : { amount }),
-		worksheet: createWorksheet(),
-		success: amount !== undefined,
+		worksheet: createWorksheet({ success: amount !== undefined }),
 	}
 }

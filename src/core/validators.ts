@@ -45,7 +45,7 @@ import {
 export const isStage: Guard<Stage> = literalOf('factor', 'group', 'total')
 
 /**
- * Determine whether a value is an exact {@link LineDefinition} record.
+ * Determines whether a value is an exact {@link LineDefinition} record.
  *
  * @remarks
  * Total guard: adversarial input (cycles, hostile prototypes) returns `false`,
@@ -56,10 +56,10 @@ export const isStage: Guard<Stage> = literalOf('factor', 'group', 'total')
  *
  * @example
  * ```ts
- * import { quantitativeDefinition } from '@orkestrel/reason'
+ * import { createQuantitativeDefinition } from '@orkestrel/reason'
  * import { isLineDefinition } from '@orkestrel/rater'
  *
- * isLineDefinition({ id: 'base', name: 'Base', rate: quantitativeDefinition('base', 'Base', []) }) // true
+ * isLineDefinition({ id: 'base', name: 'Base', rate: createQuantitativeDefinition('base', 'Base', []) }) // true
  * ```
  */
 export function isLineDefinition(value: unknown): value is LineDefinition {
@@ -264,12 +264,13 @@ export function isWorksheet(value: unknown): value is Worksheet {
 }
 
 /**
- * Determine whether a value is an open {@link LineResult} object.
+ * Determines whether a value is an open {@link LineResult} object.
  *
  * @remarks
  * Unknown members, prototypes, and class instances are admitted. Arrays are
  * refused. `amount` may be absent or read as `undefined`; when present it stays
- * a plain JavaScript `number` without a finite or range refinement.
+ * a plain JavaScript `number` without a finite or range refinement. The line's
+ * outcome lives on `worksheet`, so `worksheet.success` carries it.
  *
  * @param value - The value to test
  * @returns `true` when every published line-result member conforms
@@ -278,7 +279,7 @@ export function isWorksheet(value: unknown): value is Worksheet {
  * ```ts
  * import { isLineResult } from '@orkestrel/rater'
  *
- * isLineResult({ id: 'base', name: 'Base', worksheet: { id: 'base', name: 'Base', aggregation: 'sum', value: 0, groups: [], steps: [], trace: [], errors: [], success: false }, success: false }) // true
+ * isLineResult({ id: 'base', name: 'Base', worksheet: { id: 'base', name: 'Base', aggregation: 'sum', value: 0, groups: [], steps: [], trace: [], errors: [], success: false } }) // true
  * ```
  */
 export function isLineResult(value: unknown): value is LineResult {
@@ -288,7 +289,6 @@ export function isLineResult(value: unknown): value is LineResult {
 			name: isString,
 			amount: isNumber,
 			worksheet: isWorksheet,
-			success: isBoolean,
 		},
 		['amount'],
 	)(value)

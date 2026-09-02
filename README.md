@@ -24,15 +24,19 @@ npm install @orkestrel/rater
 
 ```ts
 import { createRater, lineDefinition } from '@orkestrel/rater'
-import { factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
+import {
+	createFactorGroup,
+	createQuantitativeDefinition,
+	createStaticFactor,
+} from '@orkestrel/reason'
 
 const rater = createRater()
 
 const base = lineDefinition(
 	'base',
 	'Base Amount',
-	quantitativeDefinition('base', 'Base', [
-		factorGroup('amount', 'sum', [staticFactor('flat', 100)]),
+	createQuantitativeDefinition('base', 'Base', [
+		createFactorGroup('amount', 'sum', [createStaticFactor('flat', 100)]),
 	]),
 )
 

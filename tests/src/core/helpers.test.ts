@@ -1,16 +1,21 @@
-import { check, factorGroup, quantitativeDefinition, staticFactor } from '@orkestrel/reason'
 import {
-	checkEvidence,
-	evidenceCheck,
+	createCheck,
+	createFactorGroup,
+	createQuantitativeDefinition,
+	createStaticFactor,
+} from '@orkestrel/reason'
+import {
+	buildEvidence,
+	buildEvidenceRows,
+	buildLineResult,
+	buildWorksheet,
+	buildWorksheetFactor,
+	buildWorksheetGroup,
 	isLineDefinition,
 	isRatingDefinition,
 	lineDefinition,
-	ratedLine,
 	ratingDefinition,
-	resultsWorksheet,
 	sumAmounts,
-	worksheetFactor,
-	worksheetGroup,
 	worksheetStep,
 	worksheetSteps,
 } from '@src/core'
@@ -25,22 +30,22 @@ import {
 	createSubject,
 } from '../../setup.js'
 
-describe('helpers — evidenceCheck and checkEvidence', () => {
+describe('helpers — buildEvidence and buildEvidenceRows', () => {
 	it('builds one evidence row from a check, applying a label when provided', () => {
-		const entry = check('age', 'above', 18)
-		expect(evidenceCheck(entry, 25, true)).toEqual({
+		const entry = createCheck('age', 'above', 18)
+		expect(buildEvidence(entry, 25, true)).toEqual({
 			field: 'age',
 			comparison: 'above',
 			expected: 18,
 			actual: 25,
 			met: true,
 		})
-		expect(evidenceCheck(entry, 25, true, { age: 'Age' }).label).toBe('Age')
+		expect(buildEvidence(entry, 25, true, { age: 'Age' }).label).toBe('Age')
 	})
 
 	it('omits met when undefined and label when unmapped', () => {
-		const entry = check('age', 'above', 18)
-		const evidence = evidenceCheck(entry, undefined, undefined)
+		const entry = createCheck('age', 'above', 18)
+		const evidence = buildEvidence(entry, undefined, undefined)
 		expect(evidence).toEqual({
 			field: 'age',
 			comparison: 'above',
@@ -52,16 +57,16 @@ describe('helpers — evidenceCheck and checkEvidence', () => {
 	})
 
 	it('joins checks and results by index, tolerating a shorter results list', () => {
-		const checks = [check('age', 'above', 18), check('state', 'equals', 'CA')]
+		const checks = [createCheck('age', 'above', 18), createCheck('state', 'equals', 'CA')]
 		const results = [{ field: 'age', met: true, actual: 25 }]
-		const evidence = checkEvidence(checks, results)
+		const evidence = buildEvidenceRows(checks, results)
 		expect(evidence).toHaveLength(2)
 		expect(evidence[0]?.met).toBe(true)
 		expect(evidence[1]?.met).toBeUndefined()
 	})
 
 	it('returns an empty list for absent checks', () => {
-		expect(checkEvidence(undefined, undefined)).toEqual([])
+		expect(buildEvidenceRows(undefined, undefined)).toEqual([])
 	})
 })
 
@@ -75,12 +80,12 @@ describe('helpers — worksheet joins', () => {
 		if (group === undefined) throw new Error('expected a group')
 		const factor = group.factors[1]
 		if (factor === undefined) throw new Error('expected a factor')
-		expect(worksheetFactor(factor, result.groups[0]?.factors ?? [])).toMatchObject({
+		expect(buildWorksheetFactor(factor, result.groups[0]?.factors ?? [])).toMatchObject({
 			id: 'seats',
 			applied: true,
 			value: 10,
 		})
-		expect(worksheetGroup(group, result.groups)).toMatchObject({
+		expect(buildWorksheetGroup(group, result.groups)).toMatchObject({
 			id: 'charge',
 			applied: true,
 			value: 110,
@@ -96,14 +101,14 @@ describe('helpers — worksheet joins', () => {
 		const group = definition.groups[0]
 		const factor = group?.factors[1]
 		if (factor === undefined) throw new Error('expected a factor')
-		const joined = worksheetFactor(factor, result.groups[0]?.factors ?? [], { seats: 'Seats' })
+		const joined = buildWorksheetFactor(factor, result.groups[0]?.factors ?? [], { seats: 'Seats' })
 		expect(joined.evidence[0]?.label).toBe('Seats')
 		engine.destroy()
 	})
 
 	it('defaults a group with no matching result', () => {
-		const group = factorGroup('empty', 'sum', [])
-		const joined = worksheetGroup(group, [])
+		const group = createFactorGroup('empty', 'sum', [])
+		const joined = buildWorksheetGroup(group, [])
 		expect(joined.applied).toBe(false)
 		expect(joined.value).toBe(0)
 		expect(joined.factors).toEqual([])
@@ -114,7 +119,7 @@ describe('helpers — worksheet joins', () => {
 		const group = definition.groups[0]
 		const factor = group?.factors[1]
 		if (factor === undefined) throw new Error('expected a factor')
-		const joined = worksheetFactor(factor, [])
+		const joined = buildWorksheetFactor(factor, [])
 		expect(joined.applied).toBe(false)
 		expect('value' in joined).toBe(false)
 		expect(joined.evidence).toHaveLength(1)
@@ -138,7 +143,7 @@ describe('helpers — worksheetStep and worksheetSteps', () => {
 		const definition = createQuoteRate()
 		const result = engine.reason(createSubject({ seats: 10 }), definition)
 		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
-		const groups = definition.groups.map((group) => worksheetGroup(group, result.groups))
+		const groups = definition.groups.map((group) => buildWorksheetGroup(group, result.groups))
 		const steps = worksheetSteps(definition, result, groups)
 		expect(steps.map((step) => step.stage)).toEqual(['factor', 'factor', 'group', 'total'])
 		expect(steps.at(-1)).toMatchObject({ stage: 'total', value: 110 })
@@ -146,10 +151,13 @@ describe('helpers — worksheetStep and worksheetSteps', () => {
 	})
 
 	it('emits factor rows only for applied, valued factors', () => {
-		const definition = quantitativeDefinition('quote', 'Quote', [
-			factorGroup('charge', 'sum', [staticFactor('base', 100)]),
+		const definition = createQuantitativeDefinition('quote', 'Quote', [
+			createFactorGroup('charge', 'sum', [createStaticFactor('base', 100)]),
 		])
-		const group = worksheetGroup(definition.groups[0] ?? factorGroup('charge', 'sum', []), [])
+		const group = buildWorksheetGroup(
+			definition.groups[0] ?? createFactorGroup('charge', 'sum', []),
+			[],
+		)
 		const result = {
 			reasoning: 'quantitative' as const,
 			value: 0,
@@ -165,13 +173,13 @@ describe('helpers — worksheetStep and worksheetSteps', () => {
 	})
 })
 
-describe('helpers — resultsWorksheet', () => {
+describe('helpers — buildWorksheet', () => {
 	it('joins a definition and its result into the full audit trail, passing through trace/errors/success', () => {
 		const engine = createEngine()
 		const definition = createQuoteRate()
 		const result = engine.reason(createSubject({ seats: 10 }), definition)
 		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
-		const worksheet = resultsWorksheet(definition, result)
+		const worksheet = buildWorksheet(definition, result)
 		expect(worksheet.id).toBe('quote')
 		expect(worksheet.value).toBe(110)
 		expect(worksheet.groups).toHaveLength(1)
@@ -183,35 +191,35 @@ describe('helpers — resultsWorksheet', () => {
 
 	it('surfaces precision only when the definition sets it', () => {
 		const engine = createEngine()
-		const withPrecision = quantitativeDefinition(
+		const withPrecision = createQuantitativeDefinition(
 			'quote',
 			'Quote',
-			[factorGroup('charge', 'sum', [staticFactor('base', 100)])],
+			[createFactorGroup('charge', 'sum', [createStaticFactor('base', 100)])],
 			{ precision: 2 },
 		)
-		const withoutPrecision = quantitativeDefinition('quote', 'Quote', [
-			factorGroup('charge', 'sum', [staticFactor('base', 100)]),
+		const withoutPrecision = createQuantitativeDefinition('quote', 'Quote', [
+			createFactorGroup('charge', 'sum', [createStaticFactor('base', 100)]),
 		])
 		const withResult = engine.reason(createSubject(), withPrecision)
 		const withoutResult = engine.reason(createSubject(), withoutPrecision)
 		if (withResult.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
 		if (withoutResult.reasoning !== 'quantitative')
 			throw new Error('expected a quantitative result')
-		expect('precision' in resultsWorksheet(withPrecision, withResult)).toBe(true)
-		expect('precision' in resultsWorksheet(withoutPrecision, withoutResult)).toBe(false)
+		expect('precision' in buildWorksheet(withPrecision, withResult)).toBe(true)
+		expect('precision' in buildWorksheet(withoutPrecision, withoutResult)).toBe(false)
 		engine.destroy()
 	})
 })
 
-describe('helpers — ratedLine', () => {
+describe('helpers — buildLineResult', () => {
 	it('carries an amount only when the evaluation succeeds', () => {
 		const engine = createEngine()
 		const definition = createQuoteRate()
 		const line = lineDefinition('line', 'Line', definition)
 		const result = engine.reason(createSubject({ seats: 10 }), definition)
 		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
-		const rated = ratedLine(line, result)
-		expect(rated).toMatchObject({ id: 'line', name: 'Line', amount: 110, success: true })
+		const rated = buildLineResult(line, result)
+		expect(rated).toMatchObject({ id: 'line', name: 'Line', amount: 110 })
 		expect(rated.worksheet.success).toBe(true)
 		engine.destroy()
 	})
@@ -221,8 +229,8 @@ describe('helpers — ratedLine', () => {
 		const line = createLookupFailureLine('line')
 		const result = engine.reason(createSubject({ region: 'north' }), line.rate)
 		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
-		const rated = ratedLine(line, result)
-		expect(rated.success).toBe(false)
+		const rated = buildLineResult(line, result)
+		expect(rated.worksheet.success).toBe(false)
 		expect('amount' in rated).toBe(false)
 		engine.destroy()
 	})

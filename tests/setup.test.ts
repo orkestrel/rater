@@ -188,11 +188,11 @@ describe('setup — result stubs', () => {
 		expect([overridden.value, overridden.success, overridden.id]).toEqual([3, false, 'worksheet'])
 	})
 
-	it('derives line-result success from the presence of an amount', () => {
+	it('derives the stub worksheet success from the presence of an amount', () => {
 		const rated = createLineResult('rated', 5)
 		const unrated = createLineResult('unrated')
-		expect([rated.amount, rated.success]).toEqual([5, true])
+		expect([rated.amount, rated.worksheet.success]).toEqual([5, true])
 		expect('amount' in unrated).toBe(false)
-		expect(unrated.success).toBe(false)
+		expect(unrated.worksheet.success).toBe(false)
 	})
 })
