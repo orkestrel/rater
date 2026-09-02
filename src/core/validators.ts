@@ -29,10 +29,10 @@ import {
 } from '@orkestrel/reason'
 
 /**
- * Determine whether a value is a {@link Stage} literal.
+ * Determines whether a value is a {@link Stage} literal.
  *
  * @param value - The value to test
- * @returns `true` when `value` is `'factor'`, `'group'`, or `'total'`
+ * @returns True if `value` is `'factor'`, `'group'`, or `'total'`; false otherwise
  *
  * @example
  * ```ts
@@ -52,7 +52,7 @@ export const isStage: Guard<Stage> = literalOf('factor', 'group', 'total')
  * never throws. The record shape is EXACT — an extra key fails.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a `LineDefinition`
+ * @returns True if `value` is a `LineDefinition`; false otherwise
  *
  * @example
  * ```ts
@@ -76,14 +76,14 @@ export function isLineDefinition(value: unknown): value is LineDefinition {
 }
 
 /**
- * Determine whether a value is an exact {@link RatingDefinition} record.
+ * Determines whether a value is an exact {@link RatingDefinition} record.
  *
  * @remarks
  * Total guard: adversarial input (cycles, hostile prototypes) returns `false`,
  * never throws. The record shape is EXACT — an extra key fails.
  *
  * @param value - The value to test
- * @returns `true` when `value` is a `RatingDefinition`
+ * @returns True if `value` is a `RatingDefinition`; false otherwise
  *
  * @example
  * ```ts
@@ -106,7 +106,7 @@ export function isRatingDefinition(value: unknown): value is RatingDefinition {
 }
 
 /**
- * Determine whether a value is an open result-side {@link Evidence} object.
+ * Determines whether a value is an open result-side {@link Evidence} object.
  *
  * @remarks
  * Unknown members, prototypes, and class instances are admitted. Arrays are
@@ -115,7 +115,7 @@ export function isRatingDefinition(value: unknown): value is RatingDefinition {
  * members rather than requiring or enumerating own keys.
  *
  * @param value - The value to test
- * @returns `true` when every checked `Evidence` member conforms
+ * @returns True if every checked `Evidence` member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -137,14 +137,14 @@ export function isEvidence(value: unknown): value is Evidence {
 }
 
 /**
- * Determine whether a value is an open {@link WorksheetFactor} result object.
+ * Determines whether a value is an open {@link WorksheetFactor} result object.
  *
  * @remarks
  * Unknown members, prototypes, and class instances are admitted. Arrays are
  * refused. Optional members may be absent or read as `undefined`.
  *
  * @param value - The value to test
- * @returns `true` when every published worksheet-factor member conforms
+ * @returns True if every published worksheet-factor member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -168,14 +168,14 @@ export function isWorksheetFactor(value: unknown): value is WorksheetFactor {
 }
 
 /**
- * Determine whether a value is an open {@link WorksheetGroup} result object.
+ * Determines whether a value is an open {@link WorksheetGroup} result object.
  *
  * @remarks
  * Unknown members, prototypes, and class instances are admitted. Arrays are
  * refused. Optional members may be absent or read as `undefined`.
  *
  * @param value - The value to test
- * @returns `true` when every published worksheet-group member conforms
+ * @returns True if every published worksheet-group member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -199,14 +199,14 @@ export function isWorksheetGroup(value: unknown): value is WorksheetGroup {
 }
 
 /**
- * Determine whether a value is an open {@link Step} result object.
+ * Determines whether a value is an open {@link Step} result object.
  *
  * @remarks
  * Unknown members, prototypes, and class instances are admitted. Arrays are
  * refused. Optional members may be absent or read as `undefined`.
  *
  * @param value - The value to test
- * @returns `true` when every published worksheet-step member conforms
+ * @returns True if every published worksheet-step member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -229,14 +229,14 @@ export function isStep(value: unknown): value is Step {
 }
 
 /**
- * Determine whether a value is an open {@link Worksheet} result object.
+ * Determines whether a value is an open {@link Worksheet} result object.
  *
  * @remarks
  * Unknown members, prototypes, and class instances are admitted. Arrays are
  * refused. Optional members may be absent or read as `undefined`.
  *
  * @param value - The value to test
- * @returns `true` when every published worksheet member conforms
+ * @returns True if every published worksheet member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -273,7 +273,7 @@ export function isWorksheet(value: unknown): value is Worksheet {
  * outcome lives on `worksheet`, so `worksheet.success` carries it.
  *
  * @param value - The value to test
- * @returns `true` when every published line-result member conforms
+ * @returns True if every published line-result member conforms; false otherwise
  *
  * @example
  * ```ts
@@ -295,7 +295,7 @@ export function isLineResult(value: unknown): value is LineResult {
 }
 
 /**
- * Determine whether a value is an open {@link RatingResult} object.
+ * Determines whether a value is an open {@link RatingResult} object.
  *
  * @remarks
  * Use this guard for a result returned by a borrowed `RaterInterface`. Unknown
@@ -304,7 +304,7 @@ export function isLineResult(value: unknown): value is LineResult {
  * JavaScript `number` without a finite or range refinement.
  *
  * @param value - The value to test
- * @returns `true` when every published rating-result member conforms
+ * @returns True if every published rating-result member conforms; false otherwise
  *
  * @example
  * ```ts

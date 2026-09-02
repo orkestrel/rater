@@ -1,7 +1,7 @@
 import type { RaterErrorCode } from './types.js'
 
 /**
- * A coded programmer error thrown by the rating layer.
+ * Represents a coded programmer error thrown by the rating layer.
  *
  * @remarks
  * `DEFINITION` — the `rate` input failed both the array-of-lines and rating
@@ -28,10 +28,10 @@ export class RaterError extends Error {
 }
 
 /**
- * Narrow a caught value to a {@link RaterError}.
+ * Narrows a caught value to a {@link RaterError}.
  *
  * @param value - The caught value to test
- * @returns `true` when `value` is a `RaterError`
+ * @returns True if `value` is a `RaterError`; false otherwise
  *
  * @example
  * ```ts

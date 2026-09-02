@@ -8,17 +8,17 @@ import type {
 	Subject,
 } from '@orkestrel/reason'
 
-/** A worksheet derivation step stage. */
+/** Names a worksheet derivation step stage. */
 export type Stage = 'factor' | 'group' | 'total'
 
-/** A coded {@link RaterError} programmer-error code. */
+/** Names a coded {@link RaterError} programmer-error code. */
 export type RaterErrorCode = 'DEFINITION' | 'MISMATCH' | 'DESTROYED'
 
-/** A pure total port over resolved lines. */
+/** Represents a pure total port over resolved lines. */
 export type TotalHandler = (lines: readonly LineResult[]) => number | undefined
 
 /**
- * One rateable line — a quantitative definition joined to display metadata.
+ * Represents one rateable line — a quantitative definition joined to display metadata.
  *
  * @remarks
  * `rate` is a plain reason {@link QuantitativeDefinition}; Rater delegates every
@@ -33,7 +33,7 @@ export interface LineDefinition {
 }
 
 /**
- * A pure authored rating — a named, ordered set of lines.
+ * Represents a pure authored rating — a named, ordered set of lines.
  *
  * @remarks
  * `rate` accepts either a plain `readonly LineDefinition[]` or a full
@@ -48,7 +48,7 @@ export interface RatingDefinition {
 	readonly metadata?: JSONValue
 }
 
-/** A checked-evidence row rendered into a display-neutral sentence. */
+/** Represents a checked-evidence row rendered into a display-neutral sentence. */
 export interface Evidence {
 	readonly field?: FieldPath
 	readonly label?: string
@@ -58,7 +58,7 @@ export interface Evidence {
 	readonly met?: boolean
 }
 
-/** A resolved quantitative factor, joined to its authored metadata. */
+/** Represents a resolved quantitative factor, joined to its authored metadata. */
 export interface WorksheetFactor {
 	readonly id: string
 	readonly name?: string
@@ -68,7 +68,7 @@ export interface WorksheetFactor {
 	readonly evidence: readonly Evidence[]
 }
 
-/** A resolved quantitative group, joined to its authored metadata. */
+/** Represents a resolved quantitative group, joined to its authored metadata. */
 export interface WorksheetGroup {
 	readonly id: string
 	readonly name?: string
@@ -78,7 +78,7 @@ export interface WorksheetGroup {
 	readonly factors: readonly WorksheetFactor[]
 }
 
-/** A display-neutral worksheet derivation step. */
+/** Represents a display-neutral worksheet derivation step. */
 export interface Step {
 	readonly stage: Stage
 	readonly id?: string
@@ -87,7 +87,7 @@ export interface Step {
 	readonly expression?: string
 }
 
-/** A quantitative definition joined to its result — the rating audit trail. */
+/** Represents a quantitative definition joined to its result — the rating audit trail. */
 export interface Worksheet {
 	readonly id: string
 	readonly name: string
@@ -102,7 +102,7 @@ export interface Worksheet {
 }
 
 /**
- * One line's rating outcome.
+ * Represents one line's rating outcome.
  *
  * @remarks
  * `worksheet` is always present — even a failed evaluation resolves to a
@@ -118,7 +118,7 @@ export interface LineResult {
 }
 
 /**
- * A rated outcome across every line of one `rate` call.
+ * Represents a rated outcome across every line of one `rate` call.
  *
  * @remarks
  * `total` is derived by the {@link TotalHandler} (default {@link sumAmounts})
@@ -132,18 +132,18 @@ export interface RatingResult {
 }
 
 /**
- * The push observation surface of a {@link RaterInterface}.
+ * Represents the push observation surface of a {@link RaterInterface}.
  *
  * @remarks
  * `rate` fires once per `rate` call, carrying the rated subject and the result.
  */
 export type RaterEventMap = {
-	/** A subject was rated — carries the subject and its result. */
+	/** Fires when a subject is rated — carries the subject and its result. */
 	readonly rate: readonly [subject: Subject, result: RatingResult]
 }
 
 /**
- * Options for `createRater` / the `Rater` constructor.
+ * Configures `createRater` and the `Rater` constructor.
  *
  * @remarks
  * `engine` — an injected {@link ReasonInterface}; when omitted, `Rater` builds
@@ -161,7 +161,7 @@ export interface RaterOptions {
 }
 
 /**
- * The rating orchestrator over the shared quantitative reasoning engine.
+ * Represents the rating orchestrator over the shared quantitative reasoning engine.
  *
  * @remarks
  * The array-of-lines `rate` overload is declared FIRST so a plain line list

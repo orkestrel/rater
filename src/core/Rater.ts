@@ -23,7 +23,7 @@ import { buildLineResult, sumAmounts } from './helpers.js'
 import { isLineDefinition, isRatingDefinition } from './validators.js'
 
 /**
- * The rating orchestrator — owns (or receives) the shared quantitative
+ * Orchestrates rating — owns (or receives) the shared quantitative
  * reasoning engine and projects results into the rating domain vocabulary.
  *
  * @remarks

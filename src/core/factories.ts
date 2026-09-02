@@ -2,7 +2,7 @@ import type { RaterInterface, RaterOptions } from './types.js'
 import { Rater } from './Rater.js'
 
 /**
- * Create a rating orchestrator.
+ * Creates a rating orchestrator.
  *
  * @param options - Optional total handler, labels, injected engine, and emitter hooks
  * @returns A {@link RaterInterface}

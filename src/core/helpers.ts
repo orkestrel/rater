@@ -207,7 +207,7 @@ export function buildWorksheetGroup(
 }
 
 /**
- * Build one display-neutral {@link Step} row.
+ * Builds one display-neutral {@link Step} row.
  *
  * @param stage - The step's stage
  * @param id - The stage's authored id, when it has one

@@ -1,5 +1,5 @@
 /**
- * Rating-domain constants.
+ * Reserves the module for rating-domain constants.
  *
  * @remarks
  * Empty — the current quantitative-only contract needs no shared constant.
