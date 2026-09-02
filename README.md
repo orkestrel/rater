@@ -57,7 +57,7 @@ through `rater.emitter` (`rate`).
 
 For the full surface — `Rater`, `RatingResult`, worksheet types, validators,
 factories, errors, and options — see
-[`guides/src/rater.md`](guides/src/rater.md).
+[`guides/rater.md`](guides/rater.md).
 
 ## Package
 
