@@ -1,6 +1,6 @@
-import { createRater, lineDefinition, RaterError } from '@src/core'
+import { buildLineDefinition, createRater, isRaterError } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { createRecorder } from '@orkestrel/test'
+import { captureError, createRecorder } from '@orkestrel/test'
 import { createEngine, createLine, createQuoteRate, createSubject } from '../../setup.js'
 
 describe('factories — createRater', () => {
@@ -31,7 +31,7 @@ describe('factories — createRater', () => {
 			labels: { seats: 'Seat Count' },
 			on: { rate: recorder.handler },
 		})
-		const line = lineDefinition('quote', 'Quote', createQuoteRate())
+		const line = buildLineDefinition('quote', 'Quote', createQuoteRate())
 		const result = rater.rate([line], createSubject())
 
 		expect(result.total).toBe(999)
@@ -59,14 +59,9 @@ describe('factories — createRater destroy semantics', () => {
 	it('an owned engine is torn down on destroy — rate() afterwards throws DESTROYED', () => {
 		const rater = createRater()
 		rater.destroy()
-		let thrown: unknown
-		try {
-			rater.rate([], createSubject())
-		} catch (error) {
-			thrown = error
-		}
-		expect(thrown).toBeInstanceOf(RaterError)
-		expect(thrown instanceof RaterError ? thrown.code : undefined).toBe('DESTROYED')
+		const error = captureError(() => rater.rate([], createSubject()))
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DESTROYED')
 	})
 
 	it('an injected engine is not torn down on destroy — it keeps working directly', () => {

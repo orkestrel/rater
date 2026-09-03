@@ -17,13 +17,13 @@ npm install @orkestrel/rater
 
 ## Requirements
 
-- Node.js >= 24
-- ESM (`import`) and CommonJS (`require`) via the `exports` field
+- Node.js >= 22.12.0
+- ESM (`import`) and CommonJS (`require`) through the `exports` field
 
 ## Usage
 
 ```ts
-import { createRater, lineDefinition } from '@orkestrel/rater'
+import { buildLineDefinition, createRater } from '@orkestrel/rater'
 import {
 	createFactorGroup,
 	createQuantitativeDefinition,
@@ -32,7 +32,7 @@ import {
 
 const rater = createRater()
 
-const base = lineDefinition(
+const base = buildLineDefinition(
 	'base',
 	'Base Amount',
 	createQuantitativeDefinition('base', 'Base', [

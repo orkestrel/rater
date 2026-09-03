@@ -22,6 +22,7 @@ import {
 	createWorksheet,
 	deepFreeze,
 	EXTREME_NUMBERS,
+	StubEngine,
 } from './setup.js'
 
 describe('setup — general primitives', () => {
@@ -168,6 +169,18 @@ describe('setup — engines', () => {
 		expect(stub.reasoner('quantitative')).toBeUndefined()
 		expect(stub.supports('quantitative')).toBe(false)
 		expect(stub.validate(rate)).toEqual({ valid: true, errors: [], warnings: [] })
+	})
+
+	it('answers both stub overloads from the class and leaves its emitter alive on destroy', () => {
+		const engine = createEngine()
+		const canned = engine.reason(createSubject(), createStaticRate('flat', 7))
+		engine.destroy()
+		const stub = new StubEngine(canned)
+		expect(createStubEngine(canned)).toBeInstanceOf(StubEngine)
+		expect(stub.reason(createSubject({ seats: 1 }), createQuoteRate())).toBe(canned)
+		expect(stub.reason([createSubject(), createSubject()], createQuoteRate())).toEqual([canned])
+		stub.destroy()
+		expect(stub.emitter.destroyed).toBe(false)
 	})
 })
 

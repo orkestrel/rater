@@ -1,5 +1,5 @@
 // The consumer-side guides-parity drop-in: runs `@orkestrel/guide`'s checks against
-// this repo's own `guides/README.md` manifest. The four constants below are this
+// this repo's own `guides/README.md` manifest. The constants that follow are this
 // package's own, and are the only part a sibling package changes.
 
 import { describe, expect, it } from 'vitest'
@@ -18,8 +18,31 @@ import {
 	resolveLink,
 } from '@orkestrel/guide'
 import { readFileSync } from 'node:fs'
-import { requireValue } from '@orkestrel/test'
+import { captureError, requireValue } from '@orkestrel/test'
 import { readInventory } from '@orkestrel/test/server'
+import {
+	buildEvidence,
+	buildLineDefinition,
+	buildRatingDefinition,
+	buildWorksheetGroup,
+	buildWorksheetSteps,
+	createRater,
+	isLineDefinition,
+	isRaterError,
+	isRatingDefinition,
+	isStage,
+	RaterError,
+	sumAmounts,
+} from '@src/core'
+import {
+	createCheck,
+	createFactorGroup,
+	createFieldFactor,
+	createQuantitativeDefinition,
+	createQuantitativeReasoner,
+	createReason,
+	createStaticFactor,
+} from '@orkestrel/reason'
 
 /** Every fence language this package's guides are allowed to use. */
 const FENCE_LANGUAGES = Object.freeze(['ts'])
@@ -32,8 +55,9 @@ const MODULES = Object.freeze({ '@orkestrel/rater': 'src/core', '@src/core': 'sr
  *
  * A class that one-class-per-file evicted from its single consumer cannot become a
  * local, so it stays exported without being public. Naming it here is what makes that
- * intentional rather than forgotten — and the second assertion below fails when a name
- * here stops being stranded, so the list cannot rot.
+ * intentional rather than forgotten — and the `names no symbol internal that the barrel
+ * already exports` assertion fails when a name here stops being stranded, so the list
+ * cannot rot.
  */
 const INTERNAL: readonly string[] = Object.freeze([])
 
@@ -168,3 +192,117 @@ for (const entry of manifest) {
 		})
 	})
 }
+
+// Executes each value-claiming fence of `guides/rater.md` and asserts the value its
+// comment claims. Parity proves a name resolves; only a run proves the comment true.
+describe('flagship fences', () => {
+	it('rates the Surface fence line to an amount and a total of 100', () => {
+		const rater = createRater()
+		const base = buildLineDefinition(
+			'base',
+			'Base Amount',
+			createQuantitativeDefinition('base', 'Base', [
+				createFactorGroup('amount', 'sum', [createStaticFactor('flat', 100)]),
+			]),
+		)
+		const result = rater.rate([base], { id: 'subject-1' })
+		expect(result.lines[0]?.amount).toBe(100)
+		expect(result.total).toBe(100)
+		rater.destroy()
+	})
+
+	it('narrows the Errors fence throw to a RaterError coded DESTROYED', () => {
+		const error = captureError(() => {
+			throw new RaterError('DESTROYED', 'Rater has been destroyed')
+		})
+		expect(isRaterError(error)).toBe(true)
+		if (!isRaterError(error)) throw new Error('expected a RaterError')
+		expect(error.code).toBe('DESTROYED')
+	})
+
+	it('answers every Validators fence guard call with true', () => {
+		expect(isStage('group')).toBe(true)
+		expect(
+			isLineDefinition({
+				id: 'base',
+				name: 'Base Amount',
+				rate: createQuantitativeDefinition('base', 'Base', []),
+			}),
+		).toBe(true)
+		expect(isRatingDefinition({ id: 'r1', name: 'Rating', lines: [] })).toBe(true)
+	})
+
+	it('merges the definition fence overrides over the defaults', () => {
+		const base = buildLineDefinition(
+			'base',
+			'Base Amount',
+			createQuantitativeDefinition('base', 'Base', []),
+		)
+		expect(buildRatingDefinition('r1', 'Rating', [base])).toEqual({
+			id: 'r1',
+			name: 'Rating',
+			lines: [base],
+		})
+		expect(buildRatingDefinition('r1', 'Rating', [base], { description: 'A rating' })).toEqual({
+			id: 'r1',
+			name: 'Rating',
+			lines: [base],
+			description: 'A rating',
+		})
+	})
+
+	it('renders the evidence fence check into the row and label its comments claim', () => {
+		const evaluated = createCheck('age', 'above', 18)
+		expect(buildEvidence(evaluated, 25, true)).toEqual({
+			field: 'age',
+			comparison: 'above',
+			expected: 18,
+			actual: 25,
+			met: true,
+		})
+		expect(buildEvidence(evaluated, 25, true, { age: 'Age' })).toEqual({
+			field: 'age',
+			label: 'Age',
+			comparison: 'above',
+			expected: 18,
+			actual: 25,
+			met: true,
+		})
+	})
+
+	it('orders the worksheet fence steps as factors, groups, then the total', () => {
+		const definition = createQuantitativeDefinition('risk', 'Risk', [
+			createFactorGroup('drivers', 'sum', [createFieldFactor('age', 'age')]),
+		])
+		const engine = createReason({ reasoners: [createQuantitativeReasoner()] })
+		const result = engine.reason({ age: 25 }, definition)
+		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
+		const steps = buildWorksheetSteps(
+			definition,
+			result,
+			definition.groups.map((entry) => buildWorksheetGroup(entry, result.groups)),
+		)
+		expect(steps.map((step) => step.stage)).toEqual(['factor', 'group', 'total'])
+		engine.destroy()
+	})
+
+	it('sums the worksheet fence empty line list to undefined', () => {
+		expect(sumAmounts([])).toBeUndefined()
+	})
+
+	it('returns equal results from both Methods fence rate overloads', () => {
+		const rater = createRater()
+		const base = buildLineDefinition(
+			'base',
+			'Base Amount',
+			createQuantitativeDefinition('base', 'Base', []),
+		)
+		const fromArray = rater.rate([base], { id: 'subject-1' })
+		const fromDefinition = rater.rate(
+			{ id: 'r1', name: 'Rating', lines: [base] },
+			{ id: 'subject-1' },
+		)
+		expect(fromArray).toEqual(fromDefinition)
+		rater.destroy()
+	})
+})

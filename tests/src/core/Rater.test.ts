@@ -9,7 +9,7 @@ import {
 	createStaticFactor,
 } from '@orkestrel/reason'
 import * as core from '@src/core'
-import { createRater, isRaterError, lineDefinition, ratingDefinition } from '@src/core'
+import { buildLineDefinition, buildRatingDefinition, createRater, isRaterError } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { captureError, createRecorder, invokeUnchecked } from '@orkestrel/test'
 import {
@@ -50,7 +50,7 @@ describe('Rater — line selection', () => {
 		const rater = createRater({ engine })
 		const rated = createLine('rated', 10)
 		const omitted = createLine('omitted', 999)
-		const catalog = ratingDefinition('catalog', 'Catalog', [rated, omitted])
+		const catalog = buildRatingDefinition('catalog', 'Catalog', [rated, omitted])
 		const result = rater.rate([rated], createSubject())
 		expect(catalog.lines.map((line) => line.id)).toEqual(['rated', 'omitted'])
 		expect(result.lines.map((line) => line.id)).toEqual(['rated'])
@@ -236,7 +236,7 @@ describe('Rater — immutability', () => {
 	it('never mutates a frozen subject, frozen line definitions, or a frozen rating definition', () => {
 		const subject = deepFreeze(createSubject({ region: 'north' }))
 		const line = deepFreeze(createLookupFailureLine('line'))
-		const rating = deepFreeze(ratingDefinition('r', 'R', [line]))
+		const rating = deepFreeze(buildRatingDefinition('r', 'R', [line]))
 		const beforeSubject = structuredClone(subject)
 		const beforeRating = structuredClone(rating)
 		const rater = createRater()
@@ -299,7 +299,7 @@ describe('Rater — engine ownership and destroy', () => {
 describe('Rater — rate overloads', () => {
 	it('the array-of-lines and rating-definition overloads produce equal results for equal lines', () => {
 		const lines = [createLine('a', 10), createLine('b', 20)]
-		const definition = ratingDefinition('r', 'R', lines)
+		const definition = buildRatingDefinition('r', 'R', lines)
 		const subject = createSubject()
 		const rater = createRater()
 		const fromArray = rater.rate(lines, subject)
@@ -346,7 +346,7 @@ describe('Rater — events', () => {
 
 describe('Rater — labels', () => {
 	it('threads the labels option into a resolved Evidence.label', () => {
-		const line = lineDefinition(
+		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition('quote', 'Quote', [
@@ -390,7 +390,7 @@ describe('Rater — defensive engine contract', () => {
 		rater.destroy()
 	})
 
-	it('tolerates an engine result missing the errors array via the defensive fallback', () => {
+	it('tolerates an engine result missing the errors array through the defensive fallback', () => {
 		const stub = invokeUnchecked<ReturnType<typeof createStubEngine>>(undefined, createStubEngine, [
 			{ reasoning: 'logical' },
 		])
@@ -411,7 +411,7 @@ describe('Rater — defensive engine contract', () => {
 
 describe('Rater — finite guarantees', () => {
 	it('a successful rating never yields a non-finite amount', () => {
-		const line = lineDefinition(
+		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition('line', 'Line', [
@@ -432,7 +432,7 @@ describe('Rater — finite guarantees', () => {
 	})
 
 	it('NaN is visible in the worksheet but never in an amount', () => {
-		const line = lineDefinition(
+		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition('line', 'Line', [createFactorGroup('g', 'sum', [])], {
@@ -457,7 +457,7 @@ describe('Rater — finite guarantees', () => {
 		// MAX_VALUE, so each line succeeds and the overflow happens only when
 		// rater sums the two MAX_VALUE amounts together.
 		const lines = [
-			lineDefinition(
+			buildLineDefinition(
 				'a',
 				'A',
 				createQuantitativeDefinition(
@@ -467,7 +467,7 @@ describe('Rater — finite guarantees', () => {
 					{ precision: 0 },
 				),
 			),
-			lineDefinition(
+			buildLineDefinition(
 				'b',
 				'B',
 				createQuantitativeDefinition(
@@ -514,7 +514,7 @@ describe('Rater — duplicates and scale', () => {
 })
 
 describe('Rater — error isolation', () => {
-	it('isolates a throwing rate listener via the error handler', () => {
+	it('isolates a throwing rate listener through the error handler', () => {
 		const recorder = createRecorder<[error: unknown, event: string]>()
 		const rater = createRater({
 			on: {
@@ -535,7 +535,7 @@ describe('Rater — hostile subject', () => {
 	it('(pin) a subject with a __proto__ key neither pollutes nor breaks rating', () => {
 		const subject: unknown = JSON.parse('{"__proto__": {"polluted": true}, "amount": 5}')
 		if (!isRecord(subject)) throw new Error('expected a record subject')
-		const line = lineDefinition(
+		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition('line', 'Line', [
@@ -553,7 +553,11 @@ describe('Rater — hostile subject', () => {
 
 describe('Rater — aggregation edges', () => {
 	it('an empty-groups definition rates to amount 0 on a successful worksheet', () => {
-		const line = lineDefinition('line', 'Line', createQuantitativeDefinition('line', 'Line', []))
+		const line = buildLineDefinition(
+			'line',
+			'Line',
+			createQuantitativeDefinition('line', 'Line', []),
+		)
 		const rater = createRater()
 		const result = rater.rate([line], createSubject())
 		const lineResult = result.lines[0]
@@ -565,7 +569,7 @@ describe('Rater — aggregation edges', () => {
 	})
 
 	it('zero-total-weight average does not blow up', () => {
-		const line = lineDefinition(
+		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition('line', 'Line', [
@@ -615,7 +619,7 @@ describe('Rater — errors table', () => {
 
 describe('Rater — precision', () => {
 	it('precision override rounds the amount and surfaces worksheet.precision', () => {
-		const line = lineDefinition(
+		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition(
@@ -640,7 +644,7 @@ describe('Rater — precision', () => {
 	})
 
 	it('(pin) definition rounding kills float drift while the group value keeps it', () => {
-		const line = lineDefinition(
+		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition(

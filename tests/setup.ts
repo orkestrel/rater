@@ -2,6 +2,7 @@
 // Vitest project (`setupFiles[0]`). Keep this file free of `node:*` and of
 // `document` / `window` / Vue.
 
+import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
 	Definition,
 	QuantitativeDefinition,
@@ -26,7 +27,7 @@ import {
 	createReason,
 	createStaticFactor,
 } from '@orkestrel/reason'
-import { lineDefinition } from '@src/core'
+import { buildLineDefinition } from '@src/core'
 
 // ---------------------------------------------------------------------------
 // General primitives
@@ -95,7 +96,7 @@ export function createStaticRate(id: string, value: number): QuantitativeDefinit
 
 /** A line whose rate always resolves to `value` — for line-selection and dispatch proofs. */
 export function createLine(id: string, value: number): LineDefinition {
-	return lineDefinition(id, id, createStaticRate(id, value))
+	return buildLineDefinition(id, id, createStaticRate(id, value))
 }
 
 /** A quantitative definition rating `base` (100) plus `seats`, with a checked field factor. */
@@ -113,7 +114,7 @@ export function createQuoteRate(): QuantitativeDefinition {
 
 /** A line whose required lookup factor fails: the subject's `region` is absent from the table and has no fallback. */
 export function createLookupFailureLine(id: string): LineDefinition {
-	return lineDefinition(
+	return buildLineDefinition(
 		id,
 		id,
 		createQuantitativeDefinition(id, id, [
@@ -126,7 +127,7 @@ export function createLookupFailureLine(id: string): LineDefinition {
 
 /** A line whose required factor fails its own check (subject `age` never clears the threshold). */
 export function createCheckFailureLine(id: string): LineDefinition {
-	return lineDefinition(
+	return buildLineDefinition(
 		id,
 		id,
 		createQuantitativeDefinition(id, id, [
@@ -150,6 +151,47 @@ export function createEngine(options?: { readonly logical?: boolean }): ReasonIn
 	})
 }
 
+/** A {@link ReasonInterface} whose `reason()` always resolves to the result it was built with. */
+export class StubEngine implements ReasonInterface {
+	readonly #result: ReasonResult
+	readonly #emitter = createEmitter<ReasonEventMap>()
+
+	constructor(result: ReasonResult) {
+		this.#result = result
+	}
+
+	get emitter(): EmitterInterface<ReasonEventMap> {
+		return this.#emitter
+	}
+
+	// Array overload first, mirroring the shape ReasonInterface declares.
+	reason(subjects: readonly Subject[], definition: Definition): readonly ReasonResult[]
+	reason(subject: Subject, definition: Definition): ReasonResult
+	reason(input: Subject | readonly Subject[]): ReasonResult | readonly ReasonResult[] {
+		return isArray(input) ? [this.#result] : this.#result
+	}
+
+	register(): void {}
+
+	reasoner(): ReasonerInterface | undefined {
+		return undefined
+	}
+
+	reasoners(): readonly ReasonerInterface[] {
+		return []
+	}
+
+	supports(): boolean {
+		return false
+	}
+
+	validate(): ReasonValidationResult {
+		return { valid: true, errors: [], warnings: [] }
+	}
+
+	destroy(): void {}
+}
+
 /**
  * A minimal, hostile-input-friendly {@link ReasonInterface} stub whose
  * `reason()` always resolves to the caller-supplied `result` — for exercising
@@ -157,21 +199,7 @@ export function createEngine(options?: { readonly logical?: boolean }): ReasonIn
  * member is a minimal conforming no-op.
  */
 export function createStubEngine<T extends ReasonResult>(result: T): ReasonInterface {
-	function reason(subjects: readonly Subject[], definition: Definition): readonly ReasonResult[]
-	function reason(subject: Subject, definition: Definition): ReasonResult
-	function reason(input: Subject | readonly Subject[]): ReasonResult | readonly ReasonResult[] {
-		return isArray(input) ? [result] : result
-	}
-	return {
-		emitter: createEmitter<ReasonEventMap>(),
-		reason,
-		register: (): void => {},
-		reasoner: (): ReasonerInterface | undefined => undefined,
-		reasoners: (): readonly ReasonerInterface[] => [],
-		supports: (): boolean => false,
-		validate: (): ReasonValidationResult => ({ valid: true, errors: [], warnings: [] }),
-		destroy: (): void => {},
-	}
+	return new StubEngine(result)
 }
 
 /** A minimal, type-shaped {@link Worksheet} stub — for line results that never touch the real engine. */

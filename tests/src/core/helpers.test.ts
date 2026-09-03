@@ -7,17 +7,17 @@ import {
 import {
 	buildEvidence,
 	buildEvidenceRows,
+	buildLineDefinition,
 	buildLineResult,
+	buildRatingDefinition,
 	buildWorksheet,
 	buildWorksheetFactor,
 	buildWorksheetGroup,
+	buildWorksheetStep,
+	buildWorksheetSteps,
 	isLineDefinition,
 	isRatingDefinition,
-	lineDefinition,
-	ratingDefinition,
 	sumAmounts,
-	worksheetStep,
-	worksheetSteps,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
@@ -127,9 +127,9 @@ describe('helpers — worksheet joins', () => {
 	})
 })
 
-describe('helpers — worksheetStep and worksheetSteps', () => {
+describe('helpers — buildWorksheetStep and buildWorksheetSteps', () => {
 	it('builds a single step row', () => {
-		expect(worksheetStep('total', 'quote', 'Quote', 110, 'sum = 110')).toEqual({
+		expect(buildWorksheetStep('total', 'quote', 'Quote', 110, 'sum = 110')).toEqual({
 			stage: 'total',
 			id: 'quote',
 			name: 'Quote',
@@ -144,7 +144,7 @@ describe('helpers — worksheetStep and worksheetSteps', () => {
 		const result = engine.reason(createSubject({ seats: 10 }), definition)
 		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
 		const groups = definition.groups.map((group) => buildWorksheetGroup(group, result.groups))
-		const steps = worksheetSteps(definition, result, groups)
+		const steps = buildWorksheetSteps(definition, result, groups)
 		expect(steps.map((step) => step.stage)).toEqual(['factor', 'factor', 'group', 'total'])
 		expect(steps.at(-1)).toMatchObject({ stage: 'total', value: 110 })
 		engine.destroy()
@@ -167,7 +167,7 @@ describe('helpers — worksheetStep and worksheetSteps', () => {
 			trace: [],
 			errors: [],
 		}
-		const steps = worksheetSteps(definition, result, [group])
+		const steps = buildWorksheetSteps(definition, result, [group])
 		expect(steps.some((step) => step.stage === 'factor')).toBe(false)
 		expect(steps.map((step) => step.stage)).toEqual(['group', 'total'])
 	})
@@ -215,7 +215,7 @@ describe('helpers — buildLineResult', () => {
 	it('carries an amount only when the evaluation succeeds', () => {
 		const engine = createEngine()
 		const definition = createQuoteRate()
-		const line = lineDefinition('line', 'Line', definition)
+		const line = buildLineDefinition('line', 'Line', definition)
 		const result = engine.reason(createSubject({ seats: 10 }), definition)
 		if (result.reasoning !== 'quantitative') throw new Error('expected a quantitative result')
 		const rated = buildLineResult(line, result)
@@ -270,10 +270,10 @@ describe('helpers — sumAmounts', () => {
 	})
 })
 
-describe('helpers — lineDefinition', () => {
+describe('helpers — buildLineDefinition', () => {
 	it('merges overrides over the required id, name, and rate', () => {
 		const rate = createLine('line', 10).rate
-		const definition = lineDefinition('line', 'Line', rate, {
+		const definition = buildLineDefinition('line', 'Line', rate, {
 			description: 'd',
 			metadata: { a: 1 },
 		})
@@ -288,15 +288,18 @@ describe('helpers — lineDefinition', () => {
 
 	it('omits optional fields when overrides are absent', () => {
 		const rate = createLine('line', 10).rate
-		const definition = lineDefinition('line', 'Line', rate)
+		const definition = buildLineDefinition('line', 'Line', rate)
 		expect(definition).toEqual({ id: 'line', name: 'Line', rate })
 	})
 })
 
-describe('helpers — ratingDefinition', () => {
+describe('helpers — buildRatingDefinition', () => {
 	it('merges overrides over the required id, name, and lines', () => {
-		const line = lineDefinition('line', 'Line', createLine('line', 10).rate)
-		const definition = ratingDefinition('r', 'R', [line], { description: 'd', metadata: { a: 1 } })
+		const line = buildLineDefinition('line', 'Line', createLine('line', 10).rate)
+		const definition = buildRatingDefinition('r', 'R', [line], {
+			description: 'd',
+			metadata: { a: 1 },
+		})
 		expect(definition).toEqual({
 			id: 'r',
 			name: 'R',
@@ -307,21 +310,23 @@ describe('helpers — ratingDefinition', () => {
 	})
 
 	it('omits optional fields when overrides are absent', () => {
-		const line = lineDefinition('line', 'Line', createLine('line', 10).rate)
-		const definition = ratingDefinition('r', 'R', [line])
+		const line = buildLineDefinition('line', 'Line', createLine('line', 10).rate)
+		const definition = buildRatingDefinition('r', 'R', [line])
 		expect(definition).toEqual({ id: 'r', name: 'R', lines: [line] })
 	})
 })
 
 describe('helpers — validator round-trip', () => {
 	it('a built line definition satisfies isLineDefinition', () => {
-		const line = lineDefinition('line', 'Line', createLine('line', 10).rate, { description: 'd' })
+		const line = buildLineDefinition('line', 'Line', createLine('line', 10).rate, {
+			description: 'd',
+		})
 		expect(isLineDefinition(line)).toBe(true)
 	})
 
 	it('a built rating definition satisfies isRatingDefinition', () => {
-		const line = lineDefinition('line', 'Line', createLine('line', 10).rate)
-		const rating = ratingDefinition('r', 'R', [line], { description: 'd' })
+		const line = buildLineDefinition('line', 'Line', createLine('line', 10).rate)
+		const rating = buildRatingDefinition('r', 'R', [line], { description: 'd' })
 		expect(isRatingDefinition(rating)).toBe(true)
 	})
 })

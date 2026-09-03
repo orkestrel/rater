@@ -20,7 +20,7 @@ Create a rater, rate one subject against a list of lines (or a full rating
 definition), read the derived total:
 
 ```ts
-import { createRater, lineDefinition } from '@orkestrel/rater'
+import { buildLineDefinition, createRater } from '@orkestrel/rater'
 import {
 	createFactorGroup,
 	createQuantitativeDefinition,
@@ -29,7 +29,7 @@ import {
 
 const rater = createRater()
 
-const base = lineDefinition(
+const base = buildLineDefinition(
 	'base',
 	'Base Amount',
 	createQuantitativeDefinition('base', 'Base', [
@@ -99,18 +99,18 @@ try {
 ### Validators
 
 Total guards composed from `@orkestrel/contract` combinators — adversarial input
-(junk, cycles, hostile prototypes) returns `false`, never throws. The guards use
-two postures based on who produces the value. Authored definitions supplied to this
-package use exact `recordOf` guards because this package owns that input shape; extra
-keys fail. Results returned by a borrowed `RaterInterface` use open `objectOf` guards
-because another valid implementation may return class instances, inherited members,
+(junk, cycles, hostile prototypes) returns `false`, never throws. The guards take their
+posture from who produces the value. Authored definitions supplied to this package use
+exact `recordOf` guards because this package owns that input shape; extra keys fail.
+Results returned by a borrowed `RaterInterface` use open `objectOf` guards because
+another valid implementation may return class instances, inherited members,
 or extra members. `isRatingResult` is the borrowed-engine boundary: it and its nested
 result guards reject arrays and check every published typed member without narrowing
 plain numbers, strings, or unknown values.
 
 | API                  | Kind     | Checks                                                                                                                                                                      | Leaves unchecked and why                                                                                                         |
 | -------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `isStage`            | const    | One of the three `Stage` literals.                                                                                                                                          | Nothing; a scalar union has no open/exact axis.                                                                                  |
+| `isStage`            | const    | One of the `Stage` literals — `'factor'`, `'group'`, or `'total'`.                                                                                                          | Nothing; a scalar union has no open/exact axis.                                                                                  |
 | `isLineDefinition`   | function | Every `LineDefinition` member, including its quantitative definition.                                                                                                       | Nothing; this package owns the authored input record, so extra keys fail.                                                        |
 | `isRatingDefinition` | function | Every `RatingDefinition` member and nested line definition.                                                                                                                 | Nothing; this package owns the authored input record, so extra keys fail.                                                        |
 | `isEvidence`         | function | Optional `field` as `FieldPath`, `label` as string, `comparison` as `Comparison`, and `met` as boolean when defined.                                                        | `expected`, `actual`, and unknown members; their published type is `unknown`, and borrowed results must not be narrowed.         |
@@ -139,30 +139,34 @@ isRatingDefinition({ id: 'r1', name: 'Rating', lines: [] }) // true
 Pure, exported utility functions — the definition builders, the evidence construction,
 and the worksheet-joining behind `Rater`'s `rate` projection.
 
-| API                    | Kind     | Summary                                                                                                   |
-| ---------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
-| `lineDefinition`       | function | Build a `LineDefinition` from id / name / rate (`overrides` merged over the defaults).                    |
-| `ratingDefinition`     | function | Build a `RatingDefinition` from id / name / lines (`overrides` merged over the defaults).                 |
-| `buildEvidence`        | function | Build an `Evidence` row from an evaluated `Check`.                                                        |
-| `buildEvidenceRows`    | function | Build one evidence row per authored check of a quantitative factor, joined to its result.                 |
-| `buildWorksheetFactor` | function | Join one authored quantitative factor to its evaluated `FactorResult`.                                    |
-| `buildWorksheetGroup`  | function | Join one authored quantitative group to its evaluated `GroupResult`.                                      |
-| `worksheetStep`        | function | Build one display-neutral `Step` row.                                                                     |
-| `worksheetSteps`       | function | Build the ordered `Step` rows for a resolved `Worksheet`.                                                 |
-| `buildWorksheet`       | function | Join a `QuantitativeDefinition` and its `QuantitativeResult` into a `Worksheet` — the rating audit trail. |
-| `buildLineResult`      | function | Build a rated `LineResult` from a line's evaluated `QuantitativeResult`.                                  |
-| `sumAmounts`           | function | Sum defined line amounts.                                                                                 |
+| API                     | Kind     | Summary                                                                                                   |
+| ----------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| `buildLineDefinition`   | function | Build a `LineDefinition` from id / name / rate (`overrides` merged over the defaults).                    |
+| `buildRatingDefinition` | function | Build a `RatingDefinition` from id / name / lines (`overrides` merged over the defaults).                 |
+| `buildEvidence`         | function | Build an `Evidence` row from an evaluated `Check`.                                                        |
+| `buildEvidenceRows`     | function | Build one evidence row per authored check of a quantitative factor, joined to its result.                 |
+| `buildWorksheetFactor`  | function | Join one authored quantitative factor to its evaluated `FactorResult`.                                    |
+| `buildWorksheetGroup`   | function | Join one authored quantitative group to its evaluated `GroupResult`.                                      |
+| `buildWorksheetStep`    | function | Build one display-neutral `Step` row.                                                                     |
+| `buildWorksheetSteps`   | function | Build the ordered `Step` rows for a resolved `Worksheet`.                                                 |
+| `buildWorksheet`        | function | Join a `QuantitativeDefinition` and its `QuantitativeResult` into a `Worksheet` — the rating audit trail. |
+| `buildLineResult`       | function | Build a rated `LineResult` from a line's evaluated `QuantitativeResult`.                                  |
+| `sumAmounts`            | function | Sum defined line amounts.                                                                                 |
 
 Definition building — `id`, `name`, and the required member, with `overrides` merged over
 them; each returns a fresh object and omits absent optional keys entirely:
 
 ```ts
-import { lineDefinition, ratingDefinition } from '@orkestrel/rater'
+import { buildLineDefinition, buildRatingDefinition } from '@orkestrel/rater'
 import { createQuantitativeDefinition } from '@orkestrel/reason'
 
-const base = lineDefinition('base', 'Base Amount', createQuantitativeDefinition('base', 'Base', []))
-ratingDefinition('r1', 'Rating', [base])
-ratingDefinition('r1', 'Rating', [base], { description: 'A rating' }) // overrides merged over the defaults
+const base = buildLineDefinition(
+	'base',
+	'Base Amount',
+	createQuantitativeDefinition('base', 'Base', []),
+)
+buildRatingDefinition('r1', 'Rating', [base])
+buildRatingDefinition('r1', 'Rating', [base], { description: 'A rating' }) // overrides merged over the defaults
 ```
 
 Evidence construction — a `Check` (and its evaluated result) rendered into a
@@ -185,14 +189,14 @@ rated `LineResult`:
 
 ```ts
 import {
+	buildLineDefinition,
 	buildLineResult,
 	buildWorksheet,
 	buildWorksheetFactor,
 	buildWorksheetGroup,
-	lineDefinition,
+	buildWorksheetStep,
+	buildWorksheetSteps,
 	sumAmounts,
-	worksheetStep,
-	worksheetSteps,
 } from '@orkestrel/rater'
 import {
 	createFactorGroup,
@@ -216,11 +220,15 @@ if (result.reasoning === 'quantitative') {
 		if (factor !== undefined) buildWorksheetFactor(factor, groupResult.factors) // one factor joined to its result
 		buildWorksheetGroup(group, result.groups) // one group joined to its result
 	}
-	worksheetStep('total', definition.id, definition.name, result.value, `sum = ${result.value}`)
-	worksheetSteps(definition, result, []) // the full ordered step list: factors, groups, then the total
+	buildWorksheetStep('total', definition.id, definition.name, result.value, `sum = ${result.value}`)
+	buildWorksheetSteps(
+		definition,
+		result,
+		definition.groups.map((entry) => buildWorksheetGroup(entry, result.groups)),
+	) // the full ordered step list: factors, groups, then the total
 	buildWorksheet(definition, result) // the whole worksheet — groups, steps, trace, errors, success
 
-	const line = lineDefinition('risk', 'Risk', definition)
+	const line = buildLineDefinition('risk', 'Risk', definition)
 	buildLineResult(line, result) // the line's rated LineResult — amount present only on a successful worksheet
 }
 
@@ -269,11 +277,15 @@ every other method throws `RaterError` `'DESTROYED'`.
 | `destroy` | `void`         | Idempotent teardown — an OWNED engine, then the emitter LAST.                                   |
 
 ```ts
-import { createRater, lineDefinition } from '@orkestrel/rater'
+import { buildLineDefinition, createRater } from '@orkestrel/rater'
 import { createQuantitativeDefinition } from '@orkestrel/reason'
 
 const rater = createRater()
-const base = lineDefinition('base', 'Base Amount', createQuantitativeDefinition('base', 'Base', []))
+const base = buildLineDefinition(
+	'base',
+	'Base Amount',
+	createQuantitativeDefinition('base', 'Base', []),
+)
 
 rater.rate([base], { id: 'subject-1' }) // the array-of-lines overload
 rater.rate({ id: 'r1', name: 'Rating', lines: [base] }, { id: 'subject-1' }) // the RatingDefinition overload

@@ -32,12 +32,12 @@ import { formatField } from '@orkestrel/reason'
  * @example
  * ```ts
  * import { createQuantitativeDefinition } from '@orkestrel/reason'
- * import { lineDefinition } from '@orkestrel/rater'
+ * import { buildLineDefinition } from '@orkestrel/rater'
  *
- * lineDefinition('base', 'Base Amount', createQuantitativeDefinition('base', 'Base', []))
+ * buildLineDefinition('base', 'Base Amount', createQuantitativeDefinition('base', 'Base', []))
  * ```
  */
-export function lineDefinition(
+export function buildLineDefinition(
 	id: string,
 	name: string,
 	rate: QuantitativeDefinition,
@@ -57,15 +57,15 @@ export function lineDefinition(
  *
  * @example
  * ```ts
- * import { lineDefinition, ratingDefinition } from '@orkestrel/rater'
+ * import { buildLineDefinition, buildRatingDefinition } from '@orkestrel/rater'
  * import { createQuantitativeDefinition } from '@orkestrel/reason'
  *
- * ratingDefinition('r1', 'Rating', [
- * 	lineDefinition('base', 'Base Amount', createQuantitativeDefinition('base', 'Base', [])),
+ * buildRatingDefinition('r1', 'Rating', [
+ * 	buildLineDefinition('base', 'Base Amount', createQuantitativeDefinition('base', 'Base', [])),
  * ])
  * ```
  */
-export function ratingDefinition(
+export function buildRatingDefinition(
 	id: string,
 	name: string,
 	lines: readonly LineDefinition[],
@@ -79,7 +79,8 @@ export function ratingDefinition(
  *
  * @param check - The authored check
  * @param actual - The resolved subject value
- * @param met - Whether the check was met (absent when not yet evaluated)
+ * @param met - If `true`, the check was met; if `false`, it was not; absent when the check
+ * was not yet evaluated
  * @param labels - Optional field-to-label overrides, keyed by dot-joined field
  * @returns A fresh evidence row
  *
@@ -218,13 +219,13 @@ export function buildWorksheetGroup(
  *
  * @example
  * ```ts
- * import { worksheetStep } from '@orkestrel/rater'
+ * import { buildWorksheetStep } from '@orkestrel/rater'
  *
- * worksheetStep('total', 'quote', 'Quote', 110, 'sum = 110')
+ * buildWorksheetStep('total', 'quote', 'Quote', 110, 'sum = 110')
  * // { stage: 'total', id: 'quote', name: 'Quote', value: 110, expression: 'sum = 110' }
  * ```
  */
-export function worksheetStep(
+export function buildWorksheetStep(
 	stage: Stage,
 	id: string | undefined,
 	name: string | undefined,
@@ -251,16 +252,16 @@ export function worksheetStep(
  * @example
  * ```ts
  * import { createFactorGroup, createQuantitativeDefinition, createQuantitativeReasoner, createReason, createStaticFactor } from '@orkestrel/reason'
- * import { buildWorksheetGroup, worksheetSteps } from '@orkestrel/rater'
+ * import { buildWorksheetGroup, buildWorksheetSteps } from '@orkestrel/rater'
  *
  * const definition = createQuantitativeDefinition('base', 'Base', [createFactorGroup('g', 'sum', [createStaticFactor('flat', 100)])])
  * const result = createReason({ reasoners: [createQuantitativeReasoner()] }).reason({}, definition)
  * if (result.reasoning === 'quantitative') {
- * 	worksheetSteps(definition, result, definition.groups.map((group) => buildWorksheetGroup(group, result.groups)))
+ * 	buildWorksheetSteps(definition, result, definition.groups.map((group) => buildWorksheetGroup(group, result.groups)))
  * }
  * ```
  */
-export function worksheetSteps(
+export function buildWorksheetSteps(
 	definition: QuantitativeDefinition,
 	result: QuantitativeResult,
 	groups: readonly WorksheetGroup[],
@@ -270,7 +271,7 @@ export function worksheetSteps(
 		for (const factor of group.factors) {
 			if (factor.applied && factor.value !== undefined) {
 				output.push(
-					worksheetStep(
+					buildWorksheetStep(
 						'factor',
 						factor.id,
 						factor.name,
@@ -281,11 +282,17 @@ export function worksheetSteps(
 			}
 		}
 		output.push(
-			worksheetStep('group', group.id, group.name, group.value, `${group.id} = ${group.value}`),
+			buildWorksheetStep(
+				'group',
+				group.id,
+				group.name,
+				group.value,
+				`${group.id} = ${group.value}`,
+			),
 		)
 	}
 	output.push(
-		worksheetStep(
+		buildWorksheetStep(
 			'total',
 			definition.id,
 			definition.name,
@@ -328,7 +335,7 @@ export function buildWorksheet(
 		...(definition.precision === undefined ? {} : { precision: definition.precision }),
 		value: result.value,
 		groups,
-		steps: worksheetSteps(definition, result, groups),
+		steps: buildWorksheetSteps(definition, result, groups),
 		trace: result.trace,
 		errors: result.errors,
 		success: result.success,
@@ -347,9 +354,9 @@ export function buildWorksheet(
  * @example
  * ```ts
  * import { createQuantitativeDefinition, createQuantitativeReasoner, createReason } from '@orkestrel/reason'
- * import { buildLineResult, lineDefinition } from '@orkestrel/rater'
+ * import { buildLineDefinition, buildLineResult } from '@orkestrel/rater'
  *
- * const line = lineDefinition('base', 'Base', createQuantitativeDefinition('base', 'Base', []))
+ * const line = buildLineDefinition('base', 'Base', createQuantitativeDefinition('base', 'Base', []))
  * const result = createReason({ reasoners: [createQuantitativeReasoner()] }).reason({}, line.rate)
  * if (result.reasoning === 'quantitative') buildLineResult(line, result) // amount present only on a successful worksheet
  * ```
@@ -376,10 +383,10 @@ export function buildLineResult(
  * @example
  * ```ts
  * import { createFactorGroup, createQuantitativeDefinition, createQuantitativeReasoner, createReason, createStaticFactor } from '@orkestrel/reason'
- * import { buildLineResult, lineDefinition, sumAmounts } from '@orkestrel/rater'
+ * import { buildLineDefinition, buildLineResult, sumAmounts } from '@orkestrel/rater'
  *
  * const rate = createQuantitativeDefinition('base', 'Base', [createFactorGroup('g', 'sum', [createStaticFactor('flat', 100)])])
- * const line = lineDefinition('base', 'Base', rate)
+ * const line = buildLineDefinition('base', 'Base', rate)
  * const result = createReason({ reasoners: [createQuantitativeReasoner()] }).reason({}, rate)
  * if (result.reasoning === 'quantitative') sumAmounts([buildLineResult(line, result)]) // 100
  * ```

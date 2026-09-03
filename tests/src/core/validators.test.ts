@@ -1,6 +1,8 @@
 import { createLogicalDefinition } from '@orkestrel/reason'
 import { createHostileValues } from '@orkestrel/test'
 import {
+	buildLineDefinition,
+	buildRatingDefinition,
 	createRater,
 	isEvidence,
 	isLineDefinition,
@@ -12,8 +14,6 @@ import {
 	isWorksheet,
 	isWorksheetFactor,
 	isWorksheetGroup,
-	lineDefinition,
-	ratingDefinition,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { createLine, createQuoteRate } from '../../setup.js'
@@ -57,17 +57,17 @@ describe('validators — isLineDefinition', () => {
 	const rate = createLine('line', 10).rate
 
 	it('accepts a minimal and a fully-populated line definition', () => {
-		expect(isLineDefinition(lineDefinition('line', 'Line', rate))).toBe(true)
+		expect(isLineDefinition(buildLineDefinition('line', 'Line', rate))).toBe(true)
 		expect(
 			isLineDefinition(
-				lineDefinition('line', 'Line', rate, { description: 'd', metadata: { a: 1 } }),
+				buildLineDefinition('line', 'Line', rate, { description: 'd', metadata: { a: 1 } }),
 			),
 		).toBe(true)
 	})
 
 	it('accepts a null-prototype record satisfying the exact shape', () => {
 		const nullProto: Record<string, unknown> = Object.create(null)
-		Object.assign(nullProto, lineDefinition('line', 'Line', rate))
+		Object.assign(nullProto, buildLineDefinition('line', 'Line', rate))
 		expect(isLineDefinition(nullProto)).toBe(true)
 	})
 
@@ -97,7 +97,7 @@ describe('validators — isLineDefinition', () => {
 	it('rejects cyclic metadata without throwing', () => {
 		const cyclic: Record<string, unknown> = {}
 		cyclic.self = cyclic
-		const candidate = { ...lineDefinition('line', 'Line', rate), metadata: cyclic }
+		const candidate = { ...buildLineDefinition('line', 'Line', rate), metadata: cyclic }
 		expect(() => isLineDefinition(candidate)).not.toThrow()
 		expect(isLineDefinition(candidate)).toBe(false)
 	})
@@ -105,7 +105,7 @@ describe('validators — isLineDefinition', () => {
 	it('walks deeply nested metadata without throwing, rejecting a non-finite leaf', () => {
 		let deep: unknown = Number.NaN
 		for (let index = 0; index < 500; index += 1) deep = [deep]
-		const candidate = { ...lineDefinition('line', 'Line', rate), metadata: deep }
+		const candidate = { ...buildLineDefinition('line', 'Line', rate), metadata: deep }
 		expect(() => isLineDefinition(candidate)).not.toThrow()
 		expect(isLineDefinition(candidate)).toBe(false)
 	})
@@ -113,7 +113,7 @@ describe('validators — isLineDefinition', () => {
 	it('walks deeply nested metadata without throwing, accepting a valid leaf', () => {
 		let deep: unknown = 1
 		for (let index = 0; index < 500; index += 1) deep = [deep]
-		const candidate = { ...lineDefinition('line', 'Line', rate), metadata: deep }
+		const candidate = { ...buildLineDefinition('line', 'Line', rate), metadata: deep }
 		expect(() => isLineDefinition(candidate)).not.toThrow()
 		expect(isLineDefinition(candidate)).toBe(true)
 	})
@@ -127,19 +127,19 @@ describe('validators — isLineDefinition', () => {
 })
 
 describe('validators — isRatingDefinition', () => {
-	const line = lineDefinition('line', 'Line', createLine('line', 10).rate)
+	const line = buildLineDefinition('line', 'Line', createLine('line', 10).rate)
 
 	it('accepts a minimal and a fully-populated rating definition', () => {
-		expect(isRatingDefinition(ratingDefinition('r', 'R', [line]))).toBe(true)
+		expect(isRatingDefinition(buildRatingDefinition('r', 'R', [line]))).toBe(true)
 		expect(
 			isRatingDefinition(
-				ratingDefinition('r', 'R', [line], { description: 'd', metadata: { a: 1 } }),
+				buildRatingDefinition('r', 'R', [line], { description: 'd', metadata: { a: 1 } }),
 			),
 		).toBe(true)
 	})
 
 	it('accepts an empty lines array', () => {
-		expect(isRatingDefinition(ratingDefinition('r', 'R', []))).toBe(true)
+		expect(isRatingDefinition(buildRatingDefinition('r', 'R', []))).toBe(true)
 	})
 
 	it('rejects missing required keys', () => {
@@ -157,8 +157,8 @@ describe('validators — isRatingDefinition', () => {
 	})
 
 	it('accepts duplicate line ids', () => {
-		const duplicate = lineDefinition('line', 'Line 2', createLine('line', 20).rate)
-		expect(isRatingDefinition(ratingDefinition('r', 'R', [line, duplicate]))).toBe(true)
+		const duplicate = buildLineDefinition('line', 'Line 2', createLine('line', 20).rate)
+		expect(isRatingDefinition(buildRatingDefinition('r', 'R', [line, duplicate]))).toBe(true)
 	})
 
 	it('rejects adversarial inputs without throwing', () => {
@@ -683,16 +683,19 @@ describe('validators — isRatingResult closure', () => {
 	})
 
 	it('requires LineResult members and boolean success, rejecting a RatingDefinition control', () => {
-		const definition = ratingDefinition('rating', 'Rating', [createLine('line', 10)])
+		const definition = buildRatingDefinition('rating', 'Rating', [createLine('line', 10)])
 		expect(isRatingResult(definition)).toBe(false)
 	})
 
 	it('accepts the real engine result and narrows a populated worksheet path', () => {
 		const rater = createRater()
 		try {
-			const rated: unknown = rater.rate([lineDefinition('quote', 'Quote', createQuoteRate())], {
-				seats: 10,
-			})
+			const rated: unknown = rater.rate(
+				[buildLineDefinition('quote', 'Quote', createQuoteRate())],
+				{
+					seats: 10,
+				},
+			)
 			expect(isRatingResult(rated)).toBe(true)
 			if (!isRatingResult(rated)) throw new Error('real result did not narrow')
 			expect(rated.lines[0]?.worksheet.groups.length).toBeGreaterThan(0)
