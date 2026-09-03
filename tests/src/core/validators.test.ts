@@ -32,7 +32,7 @@ const ADVERSARIAL_INPUTS: readonly unknown[] = [
 ]
 
 describe('validators — isStage', () => {
-	it('accepts the three stage literals', () => {
+	it('accepts the factor, group, and total stage literals', () => {
 		expect(isStage('factor')).toBe(true)
 		expect(isStage('group')).toBe(true)
 		expect(isStage('total')).toBe(true)
