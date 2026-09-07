@@ -33,14 +33,14 @@ import { buildLineDefinition } from '@src/core'
 // General primitives
 // ---------------------------------------------------------------------------
 
-/** A recorder shaped for a {@link TotalHandler} — records the lines it was called with and returns a fixed sentinel. */
+/** Records the lines it was called with and returns a fixed sentinel, shaped for a {@link TotalHandler}. */
 export interface TestTotalRecorderInterface {
 	readonly calls: ReadonlyArray<readonly LineResult[]>
 	readonly count: number
 	readonly handler: TotalHandler
 }
 
-/** Build a {@link TestTotalRecorderInterface} that always resolves to `sentinel`. */
+/** Builds a {@link TestTotalRecorderInterface} that always resolves to `sentinel`. */
 export function createTotalRecorder(sentinel: number): TestTotalRecorderInterface {
 	const calls: Array<readonly LineResult[]> = []
 	return {
@@ -57,7 +57,7 @@ export function createTotalRecorder(sentinel: number): TestTotalRecorderInterfac
 	}
 }
 
-/** Recursively `Object.freeze` a value and every object/array it reaches. */
+/** Freezes a value and every object or array it reaches, through repeated `Object.freeze` calls. */
 export function deepFreeze<T>(value: T): T {
 	if (isArray(value)) {
 		for (const item of value) deepFreeze(item)
@@ -70,7 +70,7 @@ export function deepFreeze<T>(value: T): T {
 	return value
 }
 
-/** Finite numbers whose accumulation overflows to `Infinity`. */
+/** Lists finite numbers whose accumulation overflows to `Infinity`. */
 export const EXTREME_NUMBERS: readonly number[] = Object.freeze([
 	Number.MAX_VALUE,
 	Number.MAX_VALUE,
@@ -82,24 +82,24 @@ export const EXTREME_NUMBERS: readonly number[] = Object.freeze([
 // Rater scenario builders
 // ---------------------------------------------------------------------------
 
-/** A minimal rating subject: `id` and `seats`, overridable. */
+/** Builds a minimal rating subject carrying `id` and `seats`, overridable. */
 export function createSubject(overrides?: Readonly<Record<string, unknown>>): Subject {
 	return { id: 'subject-1', seats: 10, ...overrides }
 }
 
-/** A quantitative definition that always resolves to `value`, regardless of the subject. */
+/** Builds a quantitative definition that always resolves to `value`, regardless of the subject. */
 export function createStaticRate(id: string, value: number): QuantitativeDefinition {
 	return createQuantitativeDefinition(id, id, [
 		createFactorGroup('group', 'sum', [createStaticFactor('value', value)]),
 	])
 }
 
-/** A line whose rate always resolves to `value` — for line-selection and dispatch proofs. */
+/** Builds a line whose rate always resolves to `value` — for line-selection and dispatch proofs. */
 export function createLine(id: string, value: number): LineDefinition {
 	return buildLineDefinition(id, id, createStaticRate(id, value))
 }
 
-/** A quantitative definition rating `base` (100) plus `seats`, with a checked field factor. */
+/** Builds a quantitative definition rating `base` (100) plus `seats`, with a checked field factor. */
 export function createQuoteRate(): QuantitativeDefinition {
 	return createQuantitativeDefinition('quote', 'Quote', [
 		createFactorGroup('charge', 'sum', [
@@ -112,7 +112,7 @@ export function createQuoteRate(): QuantitativeDefinition {
 	])
 }
 
-/** A line whose required lookup factor fails: the subject's `region` is absent from the table and has no fallback. */
+/** Builds a line whose required lookup factor fails: the subject's `region` is absent from the table and has no fallback. */
 export function createLookupFailureLine(id: string): LineDefinition {
 	return buildLineDefinition(
 		id,
@@ -125,7 +125,7 @@ export function createLookupFailureLine(id: string): LineDefinition {
 	)
 }
 
-/** A line whose required factor fails its own check (subject `age` never clears the threshold). */
+/** Builds a line whose required factor fails its own check (subject `age` never clears the threshold). */
 export function createCheckFailureLine(id: string): LineDefinition {
 	return buildLineDefinition(
 		id,
@@ -141,7 +141,7 @@ export function createCheckFailureLine(id: string): LineDefinition {
 	)
 }
 
-/** The shared reasoning engine a {@link RaterOptions.engine} is injected with — quantitative-only unless `logical` is requested. */
+/** Builds the shared reasoning engine a {@link RaterOptions.engine} is injected with — quantitative-only unless `logical` is requested. */
 export function createEngine(options?: { readonly logical?: boolean }): ReasonInterface {
 	return createReason({
 		reasoners: options?.logical
@@ -151,7 +151,7 @@ export function createEngine(options?: { readonly logical?: boolean }): ReasonIn
 	})
 }
 
-/** A {@link ReasonInterface} whose `reason()` always resolves to the result it was built with. */
+/** Implements a {@link ReasonInterface} whose `reason()` always resolves to the result it was built with. */
 export class StubEngine implements ReasonInterface {
 	readonly #result: ReasonResult
 	readonly #emitter = createEmitter<ReasonEventMap>()
@@ -193,7 +193,7 @@ export class StubEngine implements ReasonInterface {
 }
 
 /**
- * A minimal, hostile-input-friendly {@link ReasonInterface} stub whose
+ * Builds a minimal, hostile-input-friendly {@link ReasonInterface} stub whose
  * `reason()` always resolves to the caller-supplied `result` — for exercising
  * `Rater`'s defensive handling of an untrusted injected engine. Every other
  * member is a minimal conforming no-op.
@@ -202,7 +202,7 @@ export function createStubEngine<T extends ReasonResult>(result: T): ReasonInter
 	return new StubEngine(result)
 }
 
-/** A minimal, type-shaped {@link Worksheet} stub — for line results that never touch the real engine. */
+/** Builds a minimal, type-shaped {@link Worksheet} stub — for line results that never touch the real engine. */
 export function createWorksheet(overrides?: Partial<Worksheet>): Worksheet {
 	return {
 		id: 'worksheet',
@@ -219,7 +219,7 @@ export function createWorksheet(overrides?: Partial<Worksheet>): Worksheet {
 }
 
 /**
- * A minimal `LineResult` carrying only `amount` — for `sumAmounts` edge cases. Its
+ * Builds a minimal `LineResult` carrying only `amount` — for `sumAmounts` edge cases. Its
  * worksheet mirrors the real rating path: `worksheet.success` is `true` exactly when
  * an `amount` is supplied.
  */
