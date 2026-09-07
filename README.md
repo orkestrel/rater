@@ -1,13 +1,16 @@
 # @orkestrel/rater
 
-A typed **quantitative rating layer** over [`@orkestrel/reason`](https://github.com/orkestrel/reason):
-authored **lines** — each a plain reason `QuantitativeDefinition` joined to display
-metadata — are rated against a **subject** (a plain data record) to produce a
-`LineResult` per line (an `amount` plus its `Worksheet` audit trail) and one
-`RatingResult` (every line's outcome plus a derived `total`). The caller decides
-which lines to rate; `Rater` only evaluates what it is given. Rating never mutates
-its inputs — every result is a fresh object. Environment-agnostic — no I/O, no
-browser or server assumptions. Part of the `@orkestrel` line.
+> A typed quantitative rating layer over `@orkestrel/reason`'s shared engine: authored
+> lines, each a plain reason `QuantitativeDefinition` joined to display metadata, rated
+> against one subject to produce a `LineResult` per line — an `amount` and its
+> `Worksheet` audit trail — and one `RatingResult` carrying every line's outcome and a
+> derived `total`.
+
+Create a rater with the `createRater` function, hand it the lines a subject is rated
+against, and read the `LineResult` rows and the `total` it derives. Inject a
+`ReasonInterface` where the rating shares an engine with the rest of your reasoning, and
+call `destroy()` when the rater's work is done. Environment-agnostic — no I/O, no browser
+or server assumptions. Part of the `@orkestrel` line.
 
 ## Install
 
@@ -50,7 +53,7 @@ rater.destroy()
 ```
 
 `rate` accepts a plain `LineDefinition[]` or a full `RatingDefinition` plus one
-subject — both overloads rate a single subject. Every `rate` call fires once
+subject, and each overload rates that single subject. Every `rate` call fires once
 through `rater.emitter` (`rate`).
 
 ## Guide

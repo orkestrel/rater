@@ -6,7 +6,8 @@ import type { RaterErrorCode } from './types.js'
  * @remarks
  * `DEFINITION` — the `rate` input failed both the array-of-lines and rating
  * definition validation. `MISMATCH` — a rated subject is not a record.
- * `DESTROYED` — use of a destroyed entity.
+ * `DESTROYED` — use of a destroyed entity. `context` carries optional
+ * structured detail beside the message.
  *
  * @example
  * ```ts

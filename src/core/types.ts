@@ -107,7 +107,7 @@ export interface Worksheet {
  * @remarks
  * `worksheet` is always present — even a failed evaluation resolves to a
  * type-shaped failure worksheet, so a `LineResult` is always constructible.
- * The worksheet also carries the line's outcome: `amount` is present ONLY
+ * The worksheet also carries the line's outcome: `amount` is present only
  * when `worksheet.success` is `true`.
  */
 export interface LineResult {
@@ -147,7 +147,7 @@ export type RaterEventMap = {
  *
  * @remarks
  * `engine` — an injected {@link ReasonInterface}; when omitted, `Rater` builds
- * and OWNS its own quantitative-only engine (`bail: false`), destroying it on
+ * and owns its own quantitative-only engine (`bail: false`), destroying it on
  * `destroy()`. `total` — a {@link TotalHandler} overriding the default
  * {@link sumAmounts} projection. `labels` — field-to-label display overrides
  * threaded into every resolved {@link Evidence}.
@@ -164,13 +164,22 @@ export interface RaterOptions {
  * Represents the rating orchestrator over the shared quantitative reasoning engine.
  *
  * @remarks
- * The array-of-lines `rate` overload is declared FIRST so a plain line list
- * resolves to that form. Both overloads rate a SINGLE subject — there is no
+ * The array-of-lines `rate` overload is declared first so a plain line list
+ * resolves to that form. Each overload rates a single subject — there is no
  * batch-of-subjects overload.
  */
 export interface RaterInterface {
+	/** Holds the typed emitter every `rate` call fires its event through. */
 	readonly emitter: EmitterInterface<RaterEventMap>
+	/**
+	 * Rates an array of lines, or a rating definition, against one subject over the
+	 * shared quantitative engine.
+	 */
 	rate(lines: readonly LineDefinition[], subject: Subject): RatingResult
 	rate(definition: RatingDefinition, subject: Subject): RatingResult
+	/**
+	 * Destroys an owned engine and then the emitter, and does nothing on a later
+	 * call.
+	 */
 	destroy(): void
 }

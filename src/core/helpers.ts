@@ -21,7 +21,9 @@ import type {
 import { formatField } from '@orkestrel/reason'
 
 /**
- * Builds a {@link LineDefinition}.
+ * Builds a fresh {@link LineDefinition} from a line id, a display name, and the
+ * line's quantitative rating definition, with `overrides` merged over those
+ * defaults.
  *
  * @param id - The line id
  * @param name - The display name
@@ -47,7 +49,8 @@ export function buildLineDefinition(
 }
 
 /**
- * Builds a {@link RatingDefinition}.
+ * Builds a fresh {@link RatingDefinition} from a rating id, a display name, and
+ * the rating's ordered lines, with `overrides` merged over those defaults.
  *
  * @param id - The rating id
  * @param name - The display name

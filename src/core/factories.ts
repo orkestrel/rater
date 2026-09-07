@@ -2,12 +2,13 @@ import type { RaterInterface, RaterOptions } from './types.js'
 import { Rater } from './Rater.js'
 
 /**
- * Creates a rating orchestrator.
+ * Creates a rating orchestrator over the shared quantitative engine, seeded
+ * from {@link RaterOptions} and returning a {@link RaterInterface}.
  *
  * @param options - Optional total handler, labels, injected engine, and emitter hooks
  * @returns A {@link RaterInterface}
  *
- * @example
+ * @example Create a rater
  * ```ts
  * import { createRater } from '@orkestrel/rater'
  *

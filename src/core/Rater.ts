@@ -27,12 +27,12 @@ import { isLineDefinition, isRatingDefinition } from './validators.js'
  * reasoning engine and projects results into the rating domain vocabulary.
  *
  * @remarks
- * When no `engine` is injected, `Rater` builds and OWNS its own
- * quantitative-only engine (`bail: false`) — Rater performs NO evaluation
+ * When no `engine` is injected, `Rater` builds and owns its own
+ * quantitative-only engine (`bail: false`) — Rater performs no evaluation
  * arithmetic of its own; it only orchestrates and projects. The
- * array-of-lines `rate` overload is declared FIRST so a plain line list
- * resolves to that form. `destroy()` destroys an OWNED engine, then the
- * emitter LAST; an INJECTED engine is never destroyed. Afterwards every
+ * array-of-lines `rate` overload is declared first so a plain line list
+ * resolves to that form. `destroy()` destroys an owned engine, then the
+ * emitter last; an injected engine is never destroyed. Afterwards every
  * other method throws {@link RaterError} `'DESTROYED'`.
  *
  * @example
