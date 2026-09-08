@@ -172,8 +172,8 @@ export interface RaterInterface {
 	/** Holds the typed emitter every `rate` call fires its event through. */
 	readonly emitter: EmitterInterface<RaterEventMap>
 	/**
-	 * Rates an array of lines, or a rating definition, against one subject over the
-	 * shared quantitative engine.
+	 * Rates an array of lines, or a {@link RatingDefinition}, against one subject over
+	 * the shared quantitative engine.
 	 */
 	rate(lines: readonly LineDefinition[], subject: Subject): RatingResult
 	rate(definition: RatingDefinition, subject: Subject): RatingResult

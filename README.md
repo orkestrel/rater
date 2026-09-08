@@ -8,9 +8,10 @@
 
 Create a rater with the `createRater` function, hand it the lines a subject is rated
 against, and read the `LineResult` rows and the `total` it derives. Inject a
-`ReasonInterface` where the rating shares an engine with the rest of your reasoning, and
-call `destroy()` when the rater's work is done. Environment-agnostic — no I/O, no browser
-or server assumptions. Part of the `@orkestrel` line.
+[`@orkestrel/reason`](https://github.com/orkestrel/reason) `ReasonInterface` where the
+rating shares an engine with the rest of your reasoning, and call `destroy()` when the
+rater's work is done. Environment-agnostic — no I/O, no browser or server assumptions.
+Part of the `@orkestrel` line.
 
 ## Install
 

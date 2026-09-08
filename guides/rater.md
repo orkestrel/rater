@@ -58,8 +58,9 @@ entry, a failed required factor) is a rating failure reported on its own `LineRe
 (`worksheet.success: false`, no `amount`, a populated `worksheet.errors`) — the caller decides
 what to do with a failed line, and `Rater` reports exactly what each line resolved
 to. `total` is derived from every line's `amount` by a `TotalHandler` (default
-`sumAmounts`, overridable through `RaterOptions.total`), and only a line that
-succeeded carries an `amount`.
+`sumAmounts`, overridable through `RaterOptions.total`). A `LineResult` carries an
+`amount` only when its `worksheet.success` is `true`, and a `RatingResult`'s `success`
+is `true` only when every line's `worksheet.success` is `true`.
 
 ### Types
 
@@ -87,9 +88,7 @@ type literal with a union's arms escaped as `\|`.
 
 `RaterInterface`'s `emitter` is a `readonly` data member and stays in this table's
 `Shape` cell; the interface's call-signature members are documented under
-[Methods](#methods). A `LineResult` carries an `amount` only when its
-`worksheet.success` is `true`, and a `RatingResult`'s `success` is `true` only when
-every line's `worksheet.success` is.
+[Methods](#methods).
 
 ### Errors
 
@@ -100,6 +99,9 @@ and an optional `context` record of structured detail beside its message.
 | -------------- | -------- | --------------------------------------------------------------- |
 | `RaterError`   | class    | Represents a coded programmer error thrown by the rating layer. |
 | `isRaterError` | function | Narrows a caught value to a `RaterError`.                       |
+
+The `isRaterError` guard narrows a caught value, so a handler reads the `code` member
+off it:
 
 ```ts
 import { isRaterError, RaterError } from '@orkestrel/rater'
@@ -123,21 +125,22 @@ or extra members. `isRatingResult` is the borrowed-engine boundary: it and its n
 result guards reject arrays and check every published typed member without narrowing
 plain numbers, strings, or unknown values.
 
-What each guard checks, and what it leaves unchecked, is documented on the guard's own
-declaration.
+In a guard table a `Shape` cell holds the type the guard narrows to.
 
-| API                  | Kind     | Summary                                                                |
-| -------------------- | -------- | ---------------------------------------------------------------------- |
-| `isStage`            | const    | Determines whether a value is a `Stage` literal.                       |
-| `isLineDefinition`   | function | Determines whether a value is an exact `LineDefinition` record.        |
-| `isRatingDefinition` | function | Determines whether a value is an exact `RatingDefinition` record.      |
-| `isEvidence`         | function | Determines whether a value is an open result-side `Evidence` object.   |
-| `isWorksheetFactor`  | function | Determines whether a value is an open `WorksheetFactor` result object. |
-| `isWorksheetGroup`   | function | Determines whether a value is an open `WorksheetGroup` result object.  |
-| `isStep`             | function | Determines whether a value is an open `Step` result object.            |
-| `isWorksheet`        | function | Determines whether a value is an open `Worksheet` result object.       |
-| `isLineResult`       | function | Determines whether a value is an open `LineResult` object.             |
-| `isRatingResult`     | function | Determines whether a value is an open `RatingResult` object.           |
+| API                  | Kind     | Shape              | Summary                                                                |
+| -------------------- | -------- | ------------------ | ---------------------------------------------------------------------- |
+| `isStage`            | const    | `Stage`            | Determines whether a value is a `Stage` literal.                       |
+| `isLineDefinition`   | function | `LineDefinition`   | Determines whether a value is an exact `LineDefinition` record.        |
+| `isRatingDefinition` | function | `RatingDefinition` | Determines whether a value is an exact `RatingDefinition` record.      |
+| `isEvidence`         | function | `Evidence`         | Determines whether a value is an open result-side `Evidence` object.   |
+| `isWorksheetFactor`  | function | `WorksheetFactor`  | Determines whether a value is an open `WorksheetFactor` result object. |
+| `isWorksheetGroup`   | function | `WorksheetGroup`   | Determines whether a value is an open `WorksheetGroup` result object.  |
+| `isStep`             | function | `Step`             | Determines whether a value is an open `Step` result object.            |
+| `isWorksheet`        | function | `Worksheet`        | Determines whether a value is an open `Worksheet` result object.       |
+| `isLineResult`       | function | `LineResult`       | Determines whether a value is an open `LineResult` object.             |
+| `isRatingResult`     | function | `RatingResult`     | Determines whether a value is an open `RatingResult` object.           |
+
+Each guard answers `true` for a value of its own shape:
 
 ```ts
 import { isLineDefinition, isRatingDefinition, isStage } from '@orkestrel/rater'
@@ -264,6 +267,8 @@ rater is destroyed when its work is done.
 
 #### Create a rater
 
+The demonstration builds a rater over its own engine and destroys that rater:
+
 ```ts
 import { createRater } from '@orkestrel/rater'
 
@@ -291,10 +296,13 @@ to that form; each overload rates exactly one subject. `destroy()` is idempotent
 destroys an owned engine (never an injected one), then the emitter last. Afterwards
 every other method throws `RaterError` `'DESTROYED'`.
 
-| Method    | Returns        | Summary                                                                                                   |
-| --------- | -------------- | --------------------------------------------------------------------------------------------------------- |
-| `rate`    | `RatingResult` | Rates an array of lines, or a rating definition, against one subject over the shared quantitative engine. |
-| `destroy` | `void`         | Destroys an owned engine and then the emitter, and does nothing on a later call.                          |
+| Method    | Returns        | Summary                                                                                                    |
+| --------- | -------------- | ---------------------------------------------------------------------------------------------------------- |
+| `rate`    | `RatingResult` | Rates an array of lines, or a `RatingDefinition`, against one subject over the shared quantitative engine. |
+| `destroy` | `void`         | Destroys an owned engine and then the emitter, and does nothing on a later call.                           |
+
+The array-of-lines and rating-definition forms of `rate` each take one subject and
+return equal results for the same lines:
 
 ```ts
 import { buildLineDefinition, createRater } from '@orkestrel/rater'
