@@ -1,4 +1,5 @@
 import type { RaterErrorCode } from './types.js'
+import { isInstance } from '@orkestrel/contract'
 
 /**
  * Represents a coded programmer error thrown by the rating layer.
@@ -46,5 +47,5 @@ export class RaterError extends Error {
  * ```
  */
 export function isRaterError(value: unknown): value is RaterError {
-	return value instanceof RaterError
+	return isInstance(value, RaterError)
 }
