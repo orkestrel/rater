@@ -1,5 +1,5 @@
 import type { RaterErrorCode } from './types.js'
-import { holds, INTRINSICS, isObject } from '@orkestrel/contract'
+import { holds, INTRINSICS, isFunction, isObject } from '@orkestrel/contract'
 
 /**
  * Represents a coded programmer error thrown by the rating layer.
@@ -55,6 +55,6 @@ export function isRaterError(value: unknown): value is RaterError {
 		const code: unknown = INTRINSICS.reflect.read(value, 'code')
 		if (code !== 'DEFINITION' && code !== 'MISMATCH' && code !== 'DESTROYED') return false
 		const context: unknown = INTRINSICS.reflect.read(value, 'context')
-		return context === undefined || isObject(context)
+		return context === undefined || isObject(context) || isFunction(context)
 	})
 }
