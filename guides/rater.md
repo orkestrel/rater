@@ -103,6 +103,10 @@ and an optional `context` record of structured detail beside its message.
 The `isRaterError` guard narrows a caught value, so a handler reads the `code` member
 off it:
 
+The guard recognizes the error's own identity brand across package copies and module
+formats. It accepts subclasses regardless of their `name` and refuses transparent
+proxies, unbranded look-alikes, and plain branded objects.
+
 ```ts
 import { isRaterError, RaterError } from '@orkestrel/rater'
 

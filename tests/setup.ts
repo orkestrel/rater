@@ -28,6 +28,7 @@ import {
 	createStaticFactor,
 } from '@orkestrel/reason'
 import { buildLineDefinition } from '@src/core'
+import { createRecorder } from '@orkestrel/test'
 
 // ---------------------------------------------------------------------------
 // General primitives
@@ -42,19 +43,24 @@ export interface TestTotalRecorderInterface {
 
 /** Builds a {@link TestTotalRecorderInterface} that always resolves to `sentinel`. */
 export function createTotalRecorder(sentinel: number): TestTotalRecorderInterface {
-	const calls: Array<readonly LineResult[]> = []
+	const recorder = createRecorder<readonly [readonly LineResult[]]>()
 	return {
 		get calls(): ReadonlyArray<readonly LineResult[]> {
-			return calls
+			return recorder.calls.map(([lines]) => lines)
 		},
 		get count(): number {
-			return calls.length
+			return recorder.count
 		},
 		handler: (lines: readonly LineResult[]): number => {
-			calls.push(lines)
+			recorder.handler(lines)
 			return sentinel
 		},
 	}
+}
+
+/** Builds a nested array around a leaf for metadata guard cases. */
+export function buildNestedMetadata(leaf: unknown, depth: number): unknown {
+	return Array.from({ length: depth }).reduce<unknown>((value) => [value], leaf)
 }
 
 /** Freezes a value and every object or array it reaches, through repeated `Object.freeze` calls. */

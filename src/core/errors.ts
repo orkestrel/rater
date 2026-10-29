@@ -1,5 +1,5 @@
 import type { RaterErrorCode } from './types.js'
-import { isInstance } from '@orkestrel/contract'
+import { holds, INTRINSICS, isObject } from '@orkestrel/contract'
 
 /**
  * Represents a coded programmer error thrown by the rating layer.
@@ -23,6 +23,7 @@ export class RaterError extends Error {
 
 	constructor(code: RaterErrorCode, message: string, context?: Readonly<Record<string, unknown>>) {
 		super(message)
+		INTRINSICS.define(this, Symbol.for('@orkestrel/rater.RaterError'), { value: this })
 		this.name = 'RaterError'
 		this.code = code
 		if (context !== undefined) this.context = context
@@ -33,7 +34,7 @@ export class RaterError extends Error {
  * Narrows a caught value to a {@link RaterError}.
  *
  * @param value - The caught value to test
- * @returns True if `value` is a `RaterError`; false otherwise
+ * @returns True if the error carries its own identity brand and declared members; false otherwise
  *
  * @example
  * ```ts
@@ -47,5 +48,13 @@ export class RaterError extends Error {
  * ```
  */
 export function isRaterError(value: unknown): value is RaterError {
-	return isInstance(value, RaterError)
+	return holds(() => {
+		if (!(value instanceof Error) || INTRINSICS.prototype(value) === Error.prototype) return false
+		const brand = INTRINSICS.describe(value, Symbol.for('@orkestrel/rater.RaterError'))
+		if (brand?.value !== value) return false
+		const code: unknown = INTRINSICS.reflect.read(value, 'code')
+		if (code !== 'DEFINITION' && code !== 'MISMATCH' && code !== 'DESTROYED') return false
+		const context: unknown = INTRINSICS.reflect.read(value, 'context')
+		return context === undefined || isObject(context)
+	})
 }

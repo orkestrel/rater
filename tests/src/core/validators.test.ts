@@ -1,3 +1,4 @@
+import { attempt } from '@orkestrel/contract'
 import { createLogicalDefinition } from '@orkestrel/reason'
 import { createHostileValues } from '@orkestrel/test'
 import {
@@ -16,7 +17,7 @@ import {
 	isWorksheetGroup,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
-import { createLine, createQuoteRate } from '../../setup.js'
+import { buildNestedMetadata, createLine, createQuoteRate } from '../../setup.js'
 
 const ADVERSARIAL_INPUTS: readonly unknown[] = [
 	null,
@@ -103,16 +104,14 @@ describe('validators — isLineDefinition', () => {
 	})
 
 	it('walks deeply nested metadata without throwing, rejecting a non-finite leaf', () => {
-		let deep: unknown = Number.NaN
-		for (let index = 0; index < 500; index += 1) deep = [deep]
+		const deep = buildNestedMetadata(Number.NaN, 500)
 		const candidate = { ...buildLineDefinition('line', 'Line', rate), metadata: deep }
 		expect(() => isLineDefinition(candidate)).not.toThrow()
 		expect(isLineDefinition(candidate)).toBe(false)
 	})
 
 	it('walks deeply nested metadata without throwing, accepting a valid leaf', () => {
-		let deep: unknown = 1
-		for (let index = 0; index < 500; index += 1) deep = [deep]
+		const deep = buildNestedMetadata(1, 500)
 		const candidate = { ...buildLineDefinition('line', 'Line', rate), metadata: deep }
 		expect(() => isLineDefinition(candidate)).not.toThrow()
 		expect(isLineDefinition(candidate)).toBe(true)
@@ -239,11 +238,9 @@ describe('validators — isEvidence', () => {
 
 	it('returns the explicit result for every hostile value without throwing', () => {
 		for (const [index, input] of createHostileValues().entries()) {
-			let accepted: boolean | undefined
-			expect(() => {
-				accepted = isEvidence(input)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe(
+			const observation = attempt(() => isEvidence(input))
+			expect(observation.success).toBe(true)
+			expect(observation.success ? observation.value : undefined, `hostile value ${index}`).toBe(
 				[true, false, false, true, true, true, false, false, false, true, true][index],
 			)
 		}
@@ -313,11 +310,11 @@ describe('validators — isWorksheetFactor', () => {
 
 	it('refuses every hostile value without throwing', () => {
 		for (const [index, input] of createHostileValues().entries()) {
-			let accepted: boolean | undefined
-			expect(() => {
-				accepted = isWorksheetFactor(input)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe(false)
+			const observation = attempt(() => isWorksheetFactor(input))
+			expect(observation.success).toBe(true)
+			expect(observation.success ? observation.value : undefined, `hostile value ${index}`).toBe(
+				false,
+			)
 		}
 	})
 })
@@ -378,11 +375,11 @@ describe('validators — isWorksheetGroup', () => {
 
 	it('refuses every hostile value without throwing', () => {
 		for (const [index, input] of createHostileValues().entries()) {
-			let accepted: boolean | undefined
-			expect(() => {
-				accepted = isWorksheetGroup(input)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe(false)
+			const observation = attempt(() => isWorksheetGroup(input))
+			expect(observation.success).toBe(true)
+			expect(observation.success ? observation.value : undefined, `hostile value ${index}`).toBe(
+				false,
+			)
 		}
 	})
 })
@@ -438,11 +435,11 @@ describe('validators — isStep', () => {
 
 	it('refuses every hostile value without throwing', () => {
 		for (const [index, input] of createHostileValues().entries()) {
-			let accepted: boolean | undefined
-			expect(() => {
-				accepted = isStep(input)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe(false)
+			const observation = attempt(() => isStep(input))
+			expect(observation.success).toBe(true)
+			expect(observation.success ? observation.value : undefined, `hostile value ${index}`).toBe(
+				false,
+			)
 		}
 	})
 })
@@ -534,11 +531,11 @@ describe('validators — isWorksheet', () => {
 
 	it('refuses every hostile value without throwing', () => {
 		for (const [index, input] of createHostileValues().entries()) {
-			let accepted: boolean | undefined
-			expect(() => {
-				accepted = isWorksheet(input)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe(false)
+			const observation = attempt(() => isWorksheet(input))
+			expect(observation.success).toBe(true)
+			expect(observation.success ? observation.value : undefined, `hostile value ${index}`).toBe(
+				false,
+			)
 		}
 	})
 })
@@ -600,11 +597,11 @@ describe('validators — isLineResult', () => {
 
 	it('refuses every hostile value without throwing', () => {
 		for (const [index, input] of createHostileValues().entries()) {
-			let accepted: boolean | undefined
-			expect(() => {
-				accepted = isLineResult(input)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe(false)
+			const observation = attempt(() => isLineResult(input))
+			expect(observation.success).toBe(true)
+			expect(observation.success ? observation.value : undefined, `hostile value ${index}`).toBe(
+				false,
+			)
 		}
 	})
 })
@@ -674,11 +671,11 @@ describe('validators — isRatingResult closure', () => {
 
 	it('refuses every hostile value without throwing', () => {
 		for (const [index, input] of createHostileValues().entries()) {
-			let accepted: boolean | undefined
-			expect(() => {
-				accepted = isRatingResult(input)
-			}, `hostile value ${index}`).not.toThrow()
-			expect(accepted, `hostile value ${index}`).toBe(false)
+			const observation = attempt(() => isRatingResult(input))
+			expect(observation.success).toBe(true)
+			expect(observation.success ? observation.value : undefined, `hostile value ${index}`).toBe(
+				false,
+			)
 		}
 	})
 

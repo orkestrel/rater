@@ -395,13 +395,8 @@ export function buildLineResult(
  * ```
  */
 export function sumAmounts(lines: readonly LineResult[]): number | undefined {
-	let total = 0
-	let count = 0
-	for (const rated of lines) {
-		if (rated.amount !== undefined) {
-			total += rated.amount
-			count += 1
-		}
-	}
-	return count === 0 ? undefined : total
+	return Iterator.from(lines).reduce<number | undefined>(
+		(total, rated) => (rated.amount === undefined ? total : (total ?? 0) + rated.amount),
+		undefined,
+	)
 }
