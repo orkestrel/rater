@@ -68,7 +68,7 @@ A `Shape` cell holds an interface's data members as bare names in braces, `?` ma
 optional member and `plus` introducing its call-signature members, and a type alias's own
 type literal with a union's arms escaped as `\|`.
 
-| Type               | Kind      | Shape                                                                                 | Summary                                                                              |
+| Name               | Kind      | Shape                                                                                 | Summary                                                                              |
 | ------------------ | --------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `Stage`            | type      | `'factor' \| 'group' \| 'total'`                                                      | Names a worksheet derivation step stage.                                             |
 | `RaterErrorCode`   | type      | `'DEFINITION' \| 'MISMATCH' \| 'DESTROYED'`                                           | Names a coded `RaterError` programmer-error code.                                    |
@@ -95,7 +95,7 @@ type literal with a union's arms escaped as `\|`.
 Every `RaterError` carries a `code` — `'DEFINITION'`, `'MISMATCH'`, or `'DESTROYED'` —
 and an optional `context` record of structured detail beside its message.
 
-| API            | Kind     | Summary                                                         |
+| Name           | Kind     | Summary                                                         |
 | -------------- | -------- | --------------------------------------------------------------- |
 | `RaterError`   | class    | Represents a coded programmer error thrown by the rating layer. |
 | `isRaterError` | function | Narrows a caught value to a `RaterError`.                       |
@@ -131,7 +131,7 @@ plain numbers, strings, or unknown values.
 
 In a guard table a `Shape` cell holds the type the guard narrows to.
 
-| API                  | Kind     | Shape              | Summary                                                                |
+| Name                 | Kind     | Shape              | Summary                                                                |
 | -------------------- | -------- | ------------------ | ---------------------------------------------------------------------- |
 | `isStage`            | const    | `Stage`            | Determines whether a value is a `Stage` literal.                       |
 | `isLineDefinition`   | function | `LineDefinition`   | Determines whether a value is an exact `LineDefinition` record.        |
@@ -164,7 +164,7 @@ isRatingDefinition({ id: 'r1', name: 'Rating', lines: [] }) // true
 Pure, exported utility functions — the definition builders, the evidence construction,
 and the worksheet-joining behind `Rater`'s `rate` projection.
 
-| API                     | Kind     | Summary                                                                                                                                                     |
+| Name                    | Kind     | Summary                                                                                                                                                     |
 | ----------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `buildLineDefinition`   | function | Builds a fresh `LineDefinition` from a line id, a display name, and the line's quantitative rating definition, with `overrides` merged over those defaults. |
 | `buildRatingDefinition` | function | Builds a fresh `RatingDefinition` from a rating id, a display name, and the rating's ordered lines, with `overrides` merged over those defaults.            |
@@ -262,7 +262,7 @@ sumAmounts([]) // undefined — no line carries an amount
 
 ### Factories
 
-| API           | Kind     | Summary                                                                                                                         |
+| Name          | Kind     | Summary                                                                                                                         |
 | ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `createRater` | function | Creates a rating orchestrator over the shared quantitative engine, seeded from `RaterOptions` and returning a `RaterInterface`. |
 
@@ -282,7 +282,7 @@ rater.destroy()
 
 ### Classes
 
-| API     | Kind  | Summary                                                                                                                                   |
+| Name    | Kind  | Summary                                                                                                                                   |
 | ------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `Rater` | class | Orchestrates rating — owns (or receives) the shared quantitative reasoning engine and projects results into the rating domain vocabulary. |
 
