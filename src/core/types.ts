@@ -9,7 +9,7 @@ import type {
 } from '@orkestrel/reason'
 
 /** Names a worksheet derivation step stage. */
-export type Stage = 'factor' | 'group' | 'total'
+export type WorksheetStage = 'factor' | 'group' | 'total'
 
 /** Names a coded {@link RaterError} programmer-error code. */
 export type RaterErrorCode = 'DEFINITION' | 'MISMATCH' | 'DESTROYED'
@@ -80,7 +80,7 @@ export interface WorksheetGroup {
 
 /** Represents a display-neutral worksheet derivation step. */
 export interface Step {
-	readonly stage: Stage
+	readonly stage: WorksheetStage
 	readonly id?: string
 	readonly name?: string
 	readonly value: number

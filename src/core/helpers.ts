@@ -12,11 +12,11 @@ import type {
 	LineDefinition,
 	LineResult,
 	RatingDefinition,
-	Stage,
 	Step,
 	Worksheet,
 	WorksheetFactor,
 	WorksheetGroup,
+	WorksheetStage,
 } from './types.js'
 import { formatField } from '@orkestrel/reason'
 
@@ -229,7 +229,7 @@ export function buildWorksheetGroup(
  * ```
  */
 export function buildWorksheetStep(
-	stage: Stage,
+	stage: WorksheetStage,
 	id: string | undefined,
 	name: string | undefined,
 	value: number,

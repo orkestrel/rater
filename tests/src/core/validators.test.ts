@@ -10,11 +10,11 @@ import {
 	isLineResult,
 	isRatingDefinition,
 	isRatingResult,
-	isStage,
 	isStep,
 	isWorksheet,
 	isWorksheetFactor,
 	isWorksheetGroup,
+	isWorksheetStage,
 } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { buildNestedMetadata, createLine, createQuoteRate } from '../../setup.js'
@@ -32,24 +32,24 @@ const ADVERSARIAL_INPUTS: readonly unknown[] = [
 	{ id: 'a' },
 ]
 
-describe('validators — isStage', () => {
+describe('validators — isWorksheetStage', () => {
 	it('accepts the factor, group, and total stage literals', () => {
-		expect(isStage('factor')).toBe(true)
-		expect(isStage('group')).toBe(true)
-		expect(isStage('total')).toBe(true)
+		expect(isWorksheetStage('factor')).toBe(true)
+		expect(isWorksheetStage('group')).toBe(true)
+		expect(isWorksheetStage('total')).toBe(true)
 	})
 
 	it('rejects everything else without throwing', () => {
 		for (const input of [...ADVERSARIAL_INPUTS, 'step']) {
-			expect(() => isStage(input)).not.toThrow()
-			expect(isStage(input)).toBe(false)
+			expect(() => isWorksheetStage(input)).not.toThrow()
+			expect(isWorksheetStage(input)).toBe(false)
 		}
 	})
 
 	it('is exact-literal strict — near-miss casing and whitespace are rejected', () => {
 		for (const input of ['Factor', 'GROUP', ' group ']) {
-			expect(() => isStage(input)).not.toThrow()
-			expect(isStage(input)).toBe(false)
+			expect(() => isWorksheetStage(input)).not.toThrow()
+			expect(isWorksheetStage(input)).toBe(false)
 		}
 	})
 })

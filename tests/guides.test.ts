@@ -57,7 +57,7 @@ await new GuideCommand({
 		isLineDefinition,
 		isRaterError,
 		isRatingDefinition,
-		isStage,
+		isWorksheetStage,
 		RaterError,
 		sumAmounts,
 	} = await import('@src/core')
@@ -258,7 +258,7 @@ await new GuideCommand({
 		})
 
 		it('answers every Validators fence guard call with true', () => {
-			expect(isStage('group')).toBe(true)
+			expect(isWorksheetStage('group')).toBe(true)
 			expect(
 				isLineDefinition({
 					id: 'base',

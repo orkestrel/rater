@@ -5,11 +5,11 @@ import type {
 	LineResult,
 	RatingDefinition,
 	RatingResult,
-	Stage,
 	Step,
 	Worksheet,
 	WorksheetFactor,
 	WorksheetGroup,
+	WorksheetStage,
 } from './types.js'
 import {
 	arrayOf,
@@ -29,24 +29,24 @@ import {
 } from '@orkestrel/reason'
 
 /**
- * Determines whether a value is a {@link Stage} literal.
+ * Determines whether a value is a {@link WorksheetStage} literal.
  *
  * @remarks
  * A scalar union has no open or exact axis, so this guard accepts one of the
- * `Stage` literals and leaves nothing unchecked.
+ * `WorksheetStage` literals and leaves nothing unchecked.
  *
  * @param value - The value to test
  * @returns True if `value` is `'factor'`, `'group'`, or `'total'`; false otherwise
  *
  * @example
  * ```ts
- * import { isStage } from '@orkestrel/rater'
+ * import { isWorksheetStage } from '@orkestrel/rater'
  *
- * isStage('group') // true
- * isStage('step') // false
+ * isWorksheetStage('group') // true
+ * isWorksheetStage('step') // false
  * ```
  */
-export const isStage: Guard<Stage> = literalOf('factor', 'group', 'total')
+export const isWorksheetStage: Guard<WorksheetStage> = literalOf('factor', 'group', 'total')
 
 /**
  * Determines whether a value is an exact {@link LineDefinition} record.
@@ -221,7 +221,7 @@ export function isWorksheetGroup(value: unknown): value is WorksheetGroup {
  * Determines whether a value is an open {@link Step} result object.
  *
  * @remarks
- * `stage` is checked through `isStage`, `id`, `name`, and `expression` when
+ * `stage` is checked through `isWorksheetStage`, `id`, `name`, and `expression` when
  * defined, and `value` as a plain number. Unknown members, prototypes, and
  * class instances are admitted and left unchecked, because a borrowed result
  * implementation may add them. Arrays are refused. Optional members may be
@@ -240,7 +240,7 @@ export function isWorksheetGroup(value: unknown): value is WorksheetGroup {
 export function isStep(value: unknown): value is Step {
 	return objectOf(
 		{
-			stage: isStage,
+			stage: isWorksheetStage,
 			id: isString,
 			name: isString,
 			value: isNumber,
