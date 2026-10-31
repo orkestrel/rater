@@ -64,10 +64,6 @@ is `true` only when every line's `worksheet.success` is `true`.
 
 ### Types
 
-A `Shape` cell holds an interface's data members as bare names in braces, `?` marking an
-optional member and `plus` introducing its call-signature members, and a type alias's own
-type literal with a union's arms escaped as `\|`.
-
 | Name               | Kind      | Signature                                                                             | Summary                                                                              |
 | ------------------ | --------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `WorksheetStage`   | type      | `'factor' \| 'group' \| 'total'`                                                      | Names a worksheet derivation step stage.                                             |
@@ -87,7 +83,7 @@ type literal with a union's arms escaped as `\|`.
 | `RaterInterface`   | interface | `{ emitter, rate(), destroy() }`                                                      | Represents the rating orchestrator over the shared quantitative reasoning engine.    |
 
 `RaterInterface`'s `emitter` is a `readonly` data member and stays in this table's
-`Shape` cell; the interface's call-signature members are documented under
+`Signature` cell; the interface's call-signature members are documented under
 [Methods](#methods).
 
 ### Errors
@@ -128,8 +124,6 @@ another valid implementation may return class instances, inherited members,
 or extra members. `isRatingResult` is the borrowed-engine boundary: it and its nested
 result guards reject arrays and check every published typed member without narrowing
 plain numbers, strings, or unknown values.
-
-In a guard table a `Shape` cell holds the type the guard narrows to.
 
 | Name                 | Kind     | Signature                                       | Summary                                                                |
 | -------------------- | -------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
