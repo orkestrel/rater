@@ -33,17 +33,17 @@ import {
 describe('helpers — buildEvidence and buildEvidenceRows', () => {
 	it('builds one evidence row from a check, applying a label when provided', () => {
 		const entry = createCheck('age', 'above', 18)
-		expect(buildEvidence(entry, 25, true)).toEqual({
+		expect(buildEvidence(entry, 25, 'met')).toEqual({
 			field: 'age',
 			comparison: 'above',
 			expected: 18,
 			actual: 25,
-			met: true,
+			state: 'met',
 		})
-		expect(buildEvidence(entry, 25, true, { age: 'Age' }).label).toBe('Age')
+		expect(buildEvidence(entry, 25, 'met', { age: 'Age' }).label).toBe('Age')
 	})
 
-	it('omits met when undefined and label when unmapped', () => {
+	it('omits state when undefined and label when unmapped', () => {
 		const entry = createCheck('age', 'above', 18)
 		const evidence = buildEvidence(entry, undefined, undefined)
 		expect(evidence).toEqual({
@@ -52,17 +52,17 @@ describe('helpers — buildEvidence and buildEvidenceRows', () => {
 			expected: 18,
 			actual: undefined,
 		})
-		expect('met' in evidence).toBe(false)
+		expect('state' in evidence).toBe(false)
 		expect('label' in evidence).toBe(false)
 	})
 
 	it('joins checks and results by index, tolerating a shorter results list', () => {
 		const checks = [createCheck('age', 'above', 18), createCheck('state', 'equals', 'CA')]
-		const results = [{ field: 'age', met: true, actual: 25 }]
+		const results = [{ field: 'age', state: 'met' as const, actual: 25 }]
 		const evidence = buildEvidenceRows(checks, results)
 		expect(evidence).toHaveLength(2)
-		expect(evidence[0]?.met).toBe(true)
-		expect(evidence[1]?.met).toBeUndefined()
+		expect(evidence[0]?.state).toBe('met')
+		expect(evidence[1]?.state).toBeUndefined()
 	})
 
 	it('returns an empty list for absent checks', () => {
@@ -166,6 +166,9 @@ describe('helpers — buildWorksheetStep and buildWorksheetSteps', () => {
 			success: false,
 			trace: [],
 			errors: [],
+			faults: [],
+			repairs: [],
+			defaulted: [],
 		}
 		const steps = buildWorksheetSteps(definition, result, [group])
 		expect(steps.some((step) => step.stage === 'factor')).toBe(false)
@@ -328,5 +331,43 @@ describe('helpers — validator round-trip', () => {
 		const line = buildLineDefinition('line', 'Line', createLine('line', 10).rate)
 		const rating = buildRatingDefinition('r', 'R', [line], { description: 'd' })
 		expect(isRatingDefinition(rating)).toBe(true)
+	})
+})
+
+describe('sumAmounts — a line that refused', () => {
+	it('leaves no total, even beside lines that rated', () => {
+		const rated = buildLineResult(
+			buildLineDefinition('a', 'A', createQuantitativeDefinition('a', 'A', [])),
+			{
+				reasoning: 'quantitative',
+				value: 5,
+				groups: [],
+				count: 0,
+				success: true,
+				trace: [],
+				errors: [],
+				faults: [],
+				repairs: [],
+				defaulted: [],
+			},
+		)
+		const refused = buildLineResult(
+			buildLineDefinition('b', 'B', createQuantitativeDefinition('b', 'B', [])),
+			{
+				reasoning: 'quantitative',
+				value: 0,
+				groups: [],
+				count: 0,
+				success: false,
+				trace: [],
+				errors: ['no'],
+				faults: [],
+				repairs: [],
+				defaulted: [],
+			},
+		)
+		expect(sumAmounts([rated])).toBe(5)
+		expect(sumAmounts([rated, refused])).toBeUndefined()
+		expect(sumAmounts([])).toBeUndefined()
 	})
 })

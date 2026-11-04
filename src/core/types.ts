@@ -1,7 +1,8 @@
-import type { FieldPath, JSONValue } from '@orkestrel/contract'
+import type { AuditFault, ContractShape, FieldPath, JSONValue } from '@orkestrel/contract'
 import type { EmitterErrorHandler, EmitterHooks, EmitterInterface } from '@orkestrel/emitter'
 import type {
 	Aggregation,
+	CheckState,
 	Comparison,
 	QuantitativeDefinition,
 	ReasonInterface,
@@ -46,6 +47,7 @@ export interface RatingDefinition {
 	readonly description?: string
 	readonly lines: readonly LineDefinition[]
 	readonly metadata?: JSONValue
+	readonly shape?: ContractShape
 }
 
 /** Represents a checked-evidence row rendered into a display-neutral sentence. */
@@ -55,7 +57,7 @@ export interface Evidence {
 	readonly comparison?: Comparison
 	readonly expected?: unknown
 	readonly actual?: unknown
-	readonly met?: boolean
+	readonly state?: CheckState
 }
 
 /** Represents a resolved quantitative factor, joined to its authored metadata. */
@@ -99,6 +101,7 @@ export interface Worksheet {
 	readonly trace: readonly string[]
 	readonly errors: readonly string[]
 	readonly success: boolean
+	readonly faults: readonly AuditFault[]
 }
 
 /**
@@ -129,6 +132,10 @@ export interface RatingResult {
 	readonly lines: readonly LineResult[]
 	readonly total?: number
 	readonly success: boolean
+	readonly errors: readonly string[]
+	readonly faults: readonly AuditFault[]
+	readonly repairs: readonly AuditFault[]
+	readonly defaulted: readonly FieldPath[]
 }
 
 /**

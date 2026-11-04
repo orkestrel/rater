@@ -1,8 +1,10 @@
+import type { ContractShape } from '@orkestrel/contract'
 import type { EmitterInterface } from '@orkestrel/emitter'
 import type {
 	QuantitativeDefinition,
 	QuantitativeResult,
 	ReasonInterface,
+	ReasonResult,
 	Subject,
 } from '@orkestrel/reason'
 import type {
@@ -17,7 +19,18 @@ import type {
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
 import { arrayOf, isArray, isRecord } from '@orkestrel/contract'
-import { buildErrorResult, createQuantitativeReasoner, createReason } from '@orkestrel/reason'
+import {
+	buildErrorResult,
+	createQuantitativeReasoner,
+	createReason,
+	createSubjectDoor,
+	describeFault,
+	filterUniqueFaults,
+	isQuantitativeResult,
+	isReasonError,
+	scanShape,
+	scanShapeReads,
+} from '@orkestrel/reason'
 import { RaterError } from './errors.js'
 import { buildLineResult, sumAmounts } from './helpers.js'
 import { isLineDefinition, isRatingDefinition } from './validators.js'
@@ -50,6 +63,8 @@ export class Rater implements RaterInterface {
 	readonly #owned: boolean
 	readonly #total: TotalHandler | undefined
 	readonly #labels: Readonly<Record<string, string>> | undefined
+	readonly #door = createSubjectDoor()
+	readonly #valid = new WeakSet<RatingDefinition>()
 	#destroyed = false
 
 	constructor(options?: RaterOptions) {
@@ -79,13 +94,40 @@ export class Rater implements RaterInterface {
 		this.#ensureAlive()
 		const lines = this.#normalize(input)
 		if (!isRecord(subject)) throw new RaterError('MISMATCH', 'Subject must be a record')
-		const results = lines.map((line) => this.#rateLine(line, subject))
-		const total = (this.#total ?? sumAmounts)(results)
+		const admission = this.#door.admit(subject, this.#readShape(input))
+		const admitted = admission.subject
+		if (admitted === undefined) {
+			const refused: RatingResult = {
+				lines: [],
+				success: false,
+				errors: admission.errors,
+				faults: admission.faults,
+				repairs: [],
+				defaulted: [],
+			}
+			this.#emitter.emit('rate', subject, refused)
+			return refused
+		}
+		const results = lines.map((line) => this.#rateLine(line, admitted))
 		const success = results.every((entry) => entry.worksheet.success)
+		// No handler totals a line that refused, because the total would read as an answer.
+		const total = success ? (this.#total ?? sumAmounts)(results) : undefined
+		const faults = filterUniqueFaults(results.flatMap((entry) => entry.worksheet.faults))
+		const said = new Set(faults.map((fault) => describeFault(fault)))
+		// `success` is the verdict, so a line that failed and said nothing still has to say so.
+		const other = results.flatMap((entry) => {
+			const { errors, success: rated } = entry.worksheet
+			if (!rated && errors.length === 0) return [`${entry.id}: The line failed and said nothing`]
+			return errors.filter((error) => !said.has(error)).map((error) => `${entry.id}: ${error}`)
+		})
 		const result: RatingResult = {
 			lines: results,
 			...(total === undefined ? {} : { total }),
 			success,
+			errors: [...other, ...said],
+			faults,
+			repairs: admission.repairs,
+			defaulted: admission.defaulted,
 		}
 		this.#emitter.emit('rate', subject, result)
 		return result
@@ -107,6 +149,29 @@ export class Rater implements RaterInterface {
 		)
 	}
 
+	// A rating's shape is checked against what its lines read once per definition, by identity.
+	#readShape(input: readonly LineDefinition[] | RatingDefinition): ContractShape | undefined {
+		if (arrayOf(isLineDefinition)(input)) return undefined
+		const { shape, lines } = input
+		if (shape === undefined || this.#valid.has(input)) return shape
+		const checks = lines.flatMap((line) =>
+			line.rate.groups.flatMap((group) => group.factors.flatMap((factor) => factor.checks ?? [])),
+		)
+		const fields = lines.flatMap((line) =>
+			line.rate.groups.flatMap((group) =>
+				group.factors.flatMap((factor) =>
+					factor.source.origin === 'static' ? [] : [factor.source.field],
+				),
+			),
+		)
+		const errors = [...scanShape(shape), ...scanShapeReads(shape, checks, fields, new Set()).errors]
+		if (errors.length > 0) {
+			throw new RaterError('DEFINITION', `Rating shape is invalid: ${errors.join(', ')}`)
+		}
+		this.#valid.add(input)
+		return shape
+	}
+
 	#rateLine(line: LineDefinition, subject: Subject): LineResult {
 		const result = this.#reasonQuantitative(subject, line.rate)
 		return buildLineResult(line, result, this.#labels)
@@ -119,8 +184,8 @@ export class Rater implements RaterInterface {
 	// injected engine result missing (or with a non-array) `errors` contributes
 	// no errors from that side rather than throwing.
 	#reasonQuantitative(subject: Subject, definition: QuantitativeDefinition): QuantitativeResult {
-		const result = this.#engine.reason(subject, definition)
-		if (result.reasoning === 'quantitative') return result
+		const result = this.#reason(subject, definition)
+		if (isQuantitativeResult(result)) return result
 		const failure = buildErrorResult(
 			definition,
 			`Expected quantitative result, got ${result.reasoning}`,
@@ -135,6 +200,21 @@ export class Rater implements RaterInterface {
 			success: false,
 			trace: [],
 			errors,
+			faults: [],
+			repairs: [],
+			defaulted: [],
+		}
+	}
+
+	// An invalid line definition is an authoring error, so it reaches the caller as one.
+	#reason(subject: Subject, definition: QuantitativeDefinition): ReasonResult {
+		try {
+			return this.#engine.reason(subject, definition)
+		} catch (error) {
+			if (isReasonError(error) && error.code === 'INVALID') {
+				throw new RaterError('DEFINITION', error.message)
+			}
+			throw error
 		}
 	}
 

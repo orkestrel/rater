@@ -1,8 +1,2 @@
-/**
- * Reserves the module for rating-domain constants.
- *
- * @remarks
- * Empty — the current quantitative-only contract needs no shared constant.
- * Kept as a structural module: a future constant lands here rather than
- * reintroducing the file.
- */
+/** Lists the stages a worksheet derivation step can belong to. */
+export const WORKSHEET_STAGES = ['factor', 'group', 'total'] as const

@@ -111,7 +111,6 @@ export function createQuoteRate(): QuantitativeDefinition {
 		createFactorGroup('charge', 'sum', [
 			createStaticFactor('base', 100),
 			createFieldFactor('seats', 'seats', {
-				fallback: 0,
 				checks: [createCheck('seats', 'above', 0)],
 			}),
 		]),
@@ -220,6 +219,7 @@ export function createWorksheet(overrides?: Partial<Worksheet>): Worksheet {
 		trace: [],
 		errors: [],
 		success: true,
+		faults: [],
 		...overrides,
 	}
 }

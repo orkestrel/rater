@@ -176,7 +176,7 @@ describe('validators — isEvidence', () => {
 			comparison: 'between',
 			expected: 18,
 			actual: { nested: true },
-			met: false,
+			state: 'unmet',
 			extra: 'retained',
 		})
 		expect(isEvidence(candidate)).toBe(true)
@@ -233,7 +233,7 @@ describe('validators — isEvidence', () => {
 		expect(isEvidence({ field: [1] })).toBe(false)
 		expect(isEvidence({ label: 1 })).toBe(false)
 		expect(isEvidence({ comparison: 'near' })).toBe(false)
-		expect(isEvidence({ met: 'yes' })).toBe(false)
+		expect(isEvidence({ state: 'yes' })).toBe(false)
 	})
 
 	it('returns the explicit result for every hostile value without throwing', () => {
@@ -305,7 +305,7 @@ describe('validators — isWorksheetFactor', () => {
 		expect(isWorksheetFactor({ ...factor, description: 1 })).toBe(false)
 		expect(isWorksheetFactor({ ...factor, applied: 'yes' })).toBe(false)
 		expect(isWorksheetFactor({ ...factor, value: '1' })).toBe(false)
-		expect(isWorksheetFactor({ ...factor, evidence: [{}, { met: 'yes' }] })).toBe(false)
+		expect(isWorksheetFactor({ ...factor, evidence: [{}, { state: 'yes' }] })).toBe(false)
 	})
 
 	it('refuses every hostile value without throwing', () => {
@@ -454,6 +454,7 @@ describe('validators — isWorksheet', () => {
 		steps: [],
 		trace: [],
 		errors: [],
+		faults: [],
 		success: true,
 	}
 
@@ -504,6 +505,10 @@ describe('validators — isWorksheet', () => {
 				return []
 			}
 
+			get faults(): readonly unknown[] {
+				return []
+			}
+
 			get success(): boolean {
 				return true
 			}
@@ -550,6 +555,7 @@ describe('validators — isLineResult', () => {
 		steps: [],
 		trace: [],
 		errors: [],
+		faults: [],
 		success: true,
 	}
 	const line = { id: 'quote', name: 'Quote', worksheet }
@@ -607,7 +613,14 @@ describe('validators — isLineResult', () => {
 })
 
 describe('validators — isRatingResult closure', () => {
-	const result = { lines: [], success: true }
+	const result = {
+		lines: [],
+		success: true,
+		errors: [],
+		faults: [],
+		repairs: [],
+		defaulted: [],
+	}
 
 	it('admits unknown members, a real class instance, and prototype accessors', () => {
 		const candidate = new (class {
@@ -636,6 +649,7 @@ describe('validators — isRatingResult closure', () => {
 								steps: [],
 								trace: [],
 								errors: [],
+								faults: [],
 								success: true,
 							}
 						}
@@ -649,6 +663,22 @@ describe('validators — isRatingResult closure', () => {
 
 			get success(): boolean {
 				return true
+			}
+
+			get errors(): readonly string[] {
+				return []
+			}
+
+			get faults(): readonly unknown[] {
+				return []
+			}
+
+			get repairs(): readonly unknown[] {
+				return []
+			}
+
+			get defaulted(): readonly string[] {
+				return []
 			}
 
 			get extra(): string {

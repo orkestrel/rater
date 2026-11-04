@@ -1,6 +1,6 @@
-import type { LogicalResult, ReasonEventMap } from '@orkestrel/reason'
-import type { RaterEventMap } from '@src/core'
-import { isRecord } from '@orkestrel/contract'
+import type { LogicalResult, QuantitativeResult, ReasonEventMap } from '@orkestrel/reason'
+import type { LineResult, RaterEventMap } from '@src/core'
+import { isRecord, numberShape, objectShape, optionalShape, stringShape } from '@orkestrel/contract'
 import {
 	createCheck,
 	createFactorGroup,
@@ -9,7 +9,16 @@ import {
 	createStaticFactor,
 } from '@orkestrel/reason'
 import * as core from '@src/core'
-import { buildLineDefinition, buildRatingDefinition, createRater, isRaterError } from '@src/core'
+import {
+	buildLineDefinition,
+	buildRatingDefinition,
+	createRater,
+	isRaterError,
+	isRatingDefinition,
+	projectRatingResult,
+	ratingDefinitionContract,
+	ratingResultContract,
+} from '@src/core'
 import { describe, expect, it } from 'vitest'
 import { captureError, createRecorder, invokeUnchecked } from '@orkestrel/test'
 import {
@@ -78,15 +87,30 @@ describe('Rater — result shape', () => {
 		rater.destroy()
 	})
 
-	it('RatingResult carries exactly lines and success — total only when defined', () => {
+	it('RatingResult carries exactly its channels — total only when defined', () => {
 		const rater = createRater()
 		const withTotal = rater.rate([createLine('a', 10)], createSubject())
 		const withoutTotal = rater.rate(
 			[createLookupFailureLine('bad')],
 			createSubject({ region: 'north' }),
 		)
-		expect(Object.keys(withTotal)).toEqual(['lines', 'total', 'success'])
-		expect(Object.keys(withoutTotal)).toEqual(['lines', 'success'])
+		expect(Object.keys(withTotal)).toEqual([
+			'lines',
+			'total',
+			'success',
+			'errors',
+			'faults',
+			'repairs',
+			'defaulted',
+		])
+		expect(Object.keys(withoutTotal)).toEqual([
+			'lines',
+			'success',
+			'errors',
+			'faults',
+			'repairs',
+			'defaulted',
+		])
 		rater.destroy()
 	})
 
@@ -192,13 +216,13 @@ describe('Rater — rating failures', () => {
 })
 
 describe('Rater — totals', () => {
-	it('sums only the successful lines when some fail', () => {
+	it('leaves the total undefined when any line failed', () => {
 		const rater = createRater()
 		const result = rater.rate(
 			[createLine('good', 10), createLookupFailureLine('bad')],
 			createSubject({ region: 'north' }),
 		)
-		expect(result.total).toBe(10)
+		expect(result.total).toBeUndefined()
 		expect(result.success).toBe(false)
 		rater.destroy()
 	})
@@ -227,7 +251,14 @@ describe('Rater — totals', () => {
 	it('an empty line list rates successfully with an undefined total', () => {
 		const rater = createRater()
 		const result = rater.rate([], createSubject())
-		expect(result).toEqual({ lines: [], success: true })
+		expect(result).toEqual({
+			lines: [],
+			success: true,
+			errors: [],
+			faults: [],
+			repairs: [],
+			defaulted: [],
+		})
 		rater.destroy()
 	})
 })
@@ -368,12 +399,15 @@ describe('Rater — defensive engine contract', () => {
 	it('routes a non-quantitative engine result through the defensive fallback', () => {
 		const stub = createStubEngine<LogicalResult>({
 			reasoning: 'logical',
-			conclusion: false,
+			conclusion: 'unmet',
 			rules: [],
 			count: 0,
 			success: false,
 			trace: [],
 			errors: ['e'],
+			faults: [],
+			repairs: [],
+			defaulted: [],
 		})
 		const rater = createRater({ engine: stub })
 		const result = rater.rate([createLine('a', 10)], createSubject())
@@ -435,9 +469,16 @@ describe('Rater — finite guarantees', () => {
 		const line = buildLineDefinition(
 			'line',
 			'Line',
-			createQuantitativeDefinition('line', 'Line', [createFactorGroup('g', 'sum', [])], {
-				aggregation: 'minimum',
-			}),
+			createQuantitativeDefinition(
+				'line',
+				'Line',
+				[
+					createFactorGroup('g', 'sum', [
+						createStaticFactor('s', 5, { checks: [createCheck('seats', 'above', 999)] }),
+					]),
+				],
+				{ aggregation: 'minimum' },
+			),
 		)
 		const rater = createRater()
 		const result = rater.rate([line], createSubject())
@@ -552,23 +593,20 @@ describe('Rater — hostile subject', () => {
 })
 
 describe('Rater — aggregation edges', () => {
-	it('an empty-groups definition rates to amount 0 on a successful worksheet', () => {
+	it('an empty-groups definition refuses before it rates', () => {
 		const line = buildLineDefinition(
 			'line',
 			'Line',
 			createQuantitativeDefinition('line', 'Line', []),
 		)
 		const rater = createRater()
-		const result = rater.rate([line], createSubject())
-		const lineResult = result.lines[0]
-		if (lineResult === undefined) throw new Error('expected a line result')
-		expect(lineResult.worksheet.success).toBe(true)
-		expect(lineResult.amount).toBe(0)
-		expect(result.total).toBe(0)
+		expect(captureError(() => rater.rate([line], createSubject()))).toMatchObject({
+			code: 'DEFINITION',
+		})
 		rater.destroy()
 	})
 
-	it('zero-total-weight average does not blow up', () => {
+	it('a zero-total-weight average has no answer, and the line fails', () => {
 		const line = buildLineDefinition(
 			'line',
 			'Line',
@@ -583,9 +621,10 @@ describe('Rater — aggregation edges', () => {
 		const result = rater.rate([line], createSubject())
 		const lineResult = result.lines[0]
 		if (lineResult === undefined) throw new Error('expected a line result')
-		expect(lineResult.worksheet.groups[0]?.value).toBe(0)
-		expect(lineResult.amount).toBe(0)
-		expect(lineResult.worksheet.success).toBe(true)
+		expect(lineResult.worksheet.groups[0]?.value).toBeNaN()
+		expect(Object.hasOwn(lineResult, 'amount')).toBe(false)
+		expect(lineResult.worksheet.success).toBe(false)
+		expect(result.total).toBeUndefined()
 		rater.destroy()
 	})
 })
@@ -665,6 +704,212 @@ describe('Rater — precision', () => {
 		if (lineResult === undefined) throw new Error('expected a line result')
 		expect(lineResult.amount).toBe(0.3)
 		expect(lineResult.worksheet.groups[0]?.value).not.toBe(0.3)
+		rater.destroy()
+	})
+})
+
+describe('Rater — refusing what it cannot read', () => {
+	const field = buildLineDefinition(
+		'field',
+		'Field',
+		createQuantitativeDefinition('field', 'Field', [
+			createFactorGroup('g', 'sum', [createFieldFactor('f', 'points')]),
+		]),
+	)
+	const fixed = buildLineDefinition(
+		'fixed',
+		'Fixed',
+		createQuantitativeDefinition('fixed', 'Fixed', [
+			createFactorGroup('g', 'sum', [createStaticFactor('s', 5)]),
+		]),
+	)
+
+	it('a line missing its field has no amount, names the field, and leaves no total', () => {
+		const rater = createRater()
+		const result = rater.rate([field, fixed], {})
+		expect(result.success).toBe(false)
+		expect(result.lines[0]?.amount).toBeUndefined()
+		expect(result.lines[1]?.amount).toBe(5)
+		expect(result.total).toBeUndefined()
+		expect(result.faults).toEqual([{ reason: 'missing', path: 'points', expected: 'number' }])
+		expect(result.errors).toEqual(['Field "points" is missing'])
+		rater.destroy()
+	})
+
+	it('a total handler never sees a line that refused', () => {
+		const calls = createRecorder<[readonly LineResult[]]>()
+		const rater = createRater({
+			total: (lines) => {
+				calls.handler(lines)
+				return 99
+			},
+		})
+		expect(rater.rate([field, fixed], {}).total).toBeUndefined()
+		expect(calls.count).toBe(0)
+		expect(rater.rate([field, fixed], { points: 1 }).total).toBe(99)
+		expect(calls.count).toBe(1)
+		rater.destroy()
+	})
+
+	it('an evidence row on an unread check reads unread', () => {
+		const gated = buildLineDefinition(
+			'gated',
+			'Gated',
+			createQuantitativeDefinition('gated', 'Gated', [
+				createFactorGroup('g', 'sum', [
+					createStaticFactor('s', 5, { checks: [createCheck('flood', 'equals', true)] }),
+				]),
+			]),
+		)
+		const rater = createRater()
+		const result = rater.rate([gated], {})
+		expect(result.success).toBe(false)
+		const row = result.lines[0]?.worksheet.groups[0]?.factors[0]?.evidence[0]
+		expect(row?.state).toBe('unread')
+		rater.destroy()
+	})
+
+	it('a factor settled as unapplied is an answer: base plus the identity', () => {
+		const gated = buildLineDefinition(
+			'gated',
+			'Gated',
+			createQuantitativeDefinition(
+				'gated',
+				'Gated',
+				[
+					createFactorGroup('g', 'sum', [
+						createStaticFactor('s', 5, { checks: [createCheck('flood', 'equals', true)] }),
+					]),
+				],
+				{ base: 10 },
+			),
+		)
+		const rater = createRater()
+		const result = rater.rate([gated], { flood: false })
+		expect(result.success).toBe(true)
+		expect(result.lines[0]?.amount).toBe(10)
+		expect(result.total).toBe(10)
+		rater.destroy()
+	})
+
+	it('an invalid line definition reaches the caller as DEFINITION', () => {
+		const empty = buildLineDefinition(
+			'empty',
+			'Empty',
+			createQuantitativeDefinition('empty', 'Empty', []),
+		)
+		const rater = createRater()
+		const error = captureError(() => rater.rate([empty], {}))
+		expect(isRaterError(error) && error.code).toBe('DEFINITION')
+		rater.destroy()
+	})
+})
+
+describe('Rater — the door', () => {
+	const line = buildLineDefinition(
+		'line',
+		'Line',
+		createQuantitativeDefinition('line', 'Line', [
+			createFactorGroup('g', 'sum', [createFieldFactor('f', 'points')]),
+		]),
+	)
+	const shape = objectShape({
+		points: numberShape(),
+		note: optionalShape(stringShape(), { default: 'none' }),
+	})
+	const definition = buildRatingDefinition('r', 'R', [line], { shape })
+
+	it('a subject the shape refuses rates no line', () => {
+		const rater = createRater()
+		const result = rater.rate(definition, { points: 1, pointz: 2 })
+		expect(result.success).toBe(false)
+		expect(result.lines).toEqual([])
+		expect(result.total).toBeUndefined()
+		expect(result.faults).toEqual([{ reason: 'extra', path: ['pointz'] }])
+		rater.destroy()
+	})
+
+	it('a repair and a fill reach the lines and are reported', () => {
+		const rater = createRater()
+		const result = rater.rate(definition, { points: '7' })
+		expect(result.total).toBe(7)
+		expect(result.repairs.map((fault) => fault.path)).toEqual([['points']])
+		expect(result.defaulted).toEqual([['note']])
+		rater.destroy()
+	})
+
+	it('a shape that cannot stand, or misses what a line reads, refuses as DEFINITION', () => {
+		const rater = createRater()
+		const typo = buildRatingDefinition('r', 'R', [line], {
+			shape: objectShape({ pointz: numberShape() }),
+		})
+		const error = captureError(() => rater.rate(typo, { pointz: 1 }))
+		expect(isRaterError(error) && error.code).toBe('DEFINITION')
+		rater.destroy()
+	})
+
+	it('a plain line list has no door', () => {
+		const rater = createRater()
+		expect(rater.rate([line], { points: 1, other: 2 }).total).toBe(1)
+		rater.destroy()
+	})
+})
+
+describe('Rater — published contracts', () => {
+	const line = buildLineDefinition(
+		'line',
+		'Line',
+		createQuantitativeDefinition('line', 'Line', [
+			createFactorGroup('g', 'sum', [
+				createFieldFactor('f', 'points', { checks: [createCheck('a', 'above', 1)] }),
+			]),
+		]),
+	)
+
+	it('a definition crosses on is', () => {
+		const definition = buildRatingDefinition('r', 'R', [line])
+		expect(ratingDefinitionContract.is(definition)).toBe(true)
+		expect(isRatingDefinition(definition)).toBe(true)
+		expect(ratingDefinitionContract.is({ ...definition, extra: 1 })).toBe(false)
+	})
+
+	it('a result crosses as its projection, whatever the subject held', () => {
+		const rater = createRater()
+		for (const a of [undefined, 5, Number.NaN, 'x', 1n, { b: Number.NaN }]) {
+			const result = rater.rate([line], { a, points: 1 })
+			expect(ratingResultContract.audit(projectRatingResult(result))).toEqual([])
+		}
+		rater.destroy()
+	})
+})
+
+describe('Rater — an injected engine it cannot trust', () => {
+	const line = buildLineDefinition(
+		'line',
+		'Line',
+		createQuantitativeDefinition('line', 'Line', [
+			createFactorGroup('g', 'sum', [createStaticFactor('s', 5)]),
+		]),
+	)
+
+	it('a line that failed and said nothing still says so', () => {
+		const stub = createStubEngine<QuantitativeResult>({
+			reasoning: 'quantitative',
+			value: 5,
+			groups: [],
+			count: 0,
+			success: false,
+			trace: [],
+			errors: [],
+			faults: [],
+			repairs: [],
+			defaulted: [],
+		})
+		const rater = createRater({ engine: stub })
+		const result = rater.rate([line], createSubject())
+		expect(result.success).toBe(false)
+		expect(result.errors).toEqual(['line: The line failed and said nothing'])
+		expect(result.total).toBeUndefined()
 		rater.destroy()
 	})
 })

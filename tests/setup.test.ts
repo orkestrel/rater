@@ -195,6 +195,7 @@ describe('setup — result stubs', () => {
 			steps: [],
 			trace: [],
 			errors: [],
+			faults: [],
 			success: true,
 		})
 		const overridden = createWorksheet({ value: 3, success: false })

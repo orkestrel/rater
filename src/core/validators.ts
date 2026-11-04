@@ -23,7 +23,10 @@ import {
 } from '@orkestrel/contract'
 import {
 	isAggregation,
+	isAuditFault,
+	isCheckState,
 	isComparison,
+	isContractShape,
 	isFieldPath,
 	isQuantitativeDefinition,
 } from '@orkestrel/reason'
@@ -110,8 +113,9 @@ export function isRatingDefinition(value: unknown): value is RatingDefinition {
 			description: isString,
 			lines: arrayOf(isLineDefinition),
 			metadata: isJSONValue,
+			shape: isContractShape,
 		},
-		['description', 'metadata'],
+		['description', 'metadata', 'shape'],
 	)(value)
 }
 
@@ -134,7 +138,7 @@ export function isRatingDefinition(value: unknown): value is RatingDefinition {
  * ```ts
  * import { isEvidence } from '@orkestrel/rater'
  *
- * isEvidence({ field: 'age', comparison: 'above', expected: 18, actual: 25, met: true }) // true
+ * isEvidence({ field: 'age', comparison: 'above', expected: 18, actual: 25, state: 'met' }) // true
  * ```
  */
 export function isEvidence(value: unknown): value is Evidence {
@@ -143,9 +147,9 @@ export function isEvidence(value: unknown): value is Evidence {
 			field: isFieldPath,
 			label: isString,
 			comparison: isComparison,
-			met: isBoolean,
+			state: isCheckState,
 		},
-		['field', 'label', 'comparison', 'met'],
+		['field', 'label', 'comparison', 'state'],
 	)(value)
 }
 
@@ -284,6 +288,7 @@ export function isWorksheet(value: unknown): value is Worksheet {
 			trace: arrayOf(isString),
 			errors: arrayOf(isString),
 			success: isBoolean,
+			faults: arrayOf(isAuditFault),
 		},
 		['precision'],
 	)(value)
@@ -352,6 +357,10 @@ export function isRatingResult(value: unknown): value is RatingResult {
 			lines: arrayOf(isLineResult),
 			total: isNumber,
 			success: isBoolean,
+			errors: arrayOf(isString),
+			faults: arrayOf(isAuditFault),
+			repairs: arrayOf(isAuditFault),
+			defaulted: arrayOf(isFieldPath),
 		},
 		['total'],
 	)(value)

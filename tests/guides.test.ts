@@ -273,7 +273,9 @@ await new GuideCommand({
 			const base = buildLineDefinition(
 				'base',
 				'Base Amount',
-				createQuantitativeDefinition('base', 'Base', []),
+				createQuantitativeDefinition('base', 'Base', [
+					createFactorGroup('amount', 'sum', [createStaticFactor('flat', 100)]),
+				]),
 			)
 			expect(buildRatingDefinition('r1', 'Rating', [base])).toEqual({
 				id: 'r1',
@@ -290,20 +292,20 @@ await new GuideCommand({
 
 		it('renders the evidence fence check into the row and label its comments claim', () => {
 			const evaluated = createCheck('age', 'above', 18)
-			expect(buildEvidence(evaluated, 25, true)).toEqual({
+			expect(buildEvidence(evaluated, 25, 'met')).toEqual({
 				field: 'age',
 				comparison: 'above',
 				expected: 18,
 				actual: 25,
-				met: true,
+				state: 'met',
 			})
-			expect(buildEvidence(evaluated, 25, true, { age: 'Age' })).toEqual({
+			expect(buildEvidence(evaluated, 25, 'met', { age: 'Age' })).toEqual({
 				field: 'age',
 				label: 'Age',
 				comparison: 'above',
 				expected: 18,
 				actual: 25,
-				met: true,
+				state: 'met',
 			})
 		})
 
@@ -332,7 +334,9 @@ await new GuideCommand({
 			const base = buildLineDefinition(
 				'base',
 				'Base Amount',
-				createQuantitativeDefinition('base', 'Base', []),
+				createQuantitativeDefinition('base', 'Base', [
+					createFactorGroup('amount', 'sum', [createStaticFactor('flat', 100)]),
+				]),
 			)
 			const fromArray = rater.rate([base], { id: 'subject-1' })
 			const fromDefinition = rater.rate(

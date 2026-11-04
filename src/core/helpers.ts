@@ -1,6 +1,8 @@
+import type { JSONValue } from '@orkestrel/contract'
 import type {
 	Check,
 	CheckResult,
+	CheckState,
 	Factor,
 	FactorResult,
 	GroupResult,
@@ -12,13 +14,14 @@ import type {
 	LineDefinition,
 	LineResult,
 	RatingDefinition,
+	RatingResult,
 	Step,
 	Worksheet,
 	WorksheetFactor,
 	WorksheetGroup,
 	WorksheetStage,
 } from './types.js'
-import { formatField } from '@orkestrel/reason'
+import { formatField, projectValue } from '@orkestrel/reason'
 
 /**
  * Builds a fresh {@link LineDefinition} from a line id, a display name, and the
@@ -99,7 +102,7 @@ export function buildRatingDefinition(
 export function buildEvidence(
 	check: Check,
 	actual: unknown,
-	met: boolean | undefined,
+	state: CheckState | undefined,
 	labels?: Readonly<Record<string, string>>,
 ): Evidence {
 	const field = formatField(check.field)
@@ -109,7 +112,7 @@ export function buildEvidence(
 		comparison: check.operator,
 		expected: check.value,
 		actual,
-		...(met === undefined ? {} : { met }),
+		...(state === undefined ? {} : { state }),
 	}
 }
 
@@ -138,7 +141,7 @@ export function buildEvidenceRows(
 ): readonly Evidence[] {
 	return (checks ?? []).map((check, index) => {
 		const result = results?.[index]
-		return buildEvidence(check, result?.actual, result?.met, labels)
+		return buildEvidence(check, result?.actual, result?.state, labels)
 	})
 }
 
@@ -342,6 +345,7 @@ export function buildWorksheet(
 		trace: result.trace,
 		errors: result.errors,
 		success: result.success,
+		faults: result.faults,
 	}
 }
 
@@ -395,8 +399,46 @@ export function buildLineResult(
  * ```
  */
 export function sumAmounts(lines: readonly LineResult[]): number | undefined {
+	// A total over a line that refused would read as an answer for the whole subject.
+	if (!lines.every((rated) => rated.worksheet.success)) return undefined
 	return Iterator.from(lines).reduce<number | undefined>(
 		(total, rated) => (rated.amount === undefined ? total : (total ?? 0) + rated.amount),
 		undefined,
 	)
+}
+
+/**
+ * Projects a result to the JSON its contract reads.
+ *
+ * @remarks
+ * An evidence row's `actual` holds whatever the subject held and a worksheet's numbers may be
+ * `NaN`, so a result crosses a boundary as this projection, each `actual` on its own budget.
+ *
+ * @param result - The rating result
+ * @returns Its JSON projection, which `ratingResultContract` admits
+ *
+ * @example
+ * ```ts
+ * import { createRater, projectRatingResult, ratingResultContract } from '@orkestrel/rater'
+ *
+ * const rater = createRater()
+ * ratingResultContract.is(projectRatingResult(rater.rate([], {}))) // true
+ * rater.destroy()
+ * ```
+ */
+export function projectRatingResult(result: RatingResult): JSONValue | undefined {
+	const lines = result.lines.map((line) => ({
+		...line,
+		worksheet: {
+			...line.worksheet,
+			groups: line.worksheet.groups.map((group) => ({
+				...group,
+				factors: group.factors.map((factor) => ({
+					...factor,
+					evidence: factor.evidence.map((row) => ({ ...row, actual: projectValue(row.actual) })),
+				})),
+			})),
+		},
+	}))
+	return projectValue({ ...result, lines }, new Set(), { left: Number.POSITIVE_INFINITY })
 }
