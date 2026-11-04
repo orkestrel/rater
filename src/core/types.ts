@@ -102,6 +102,8 @@ export interface Worksheet {
 	readonly errors: readonly string[]
 	readonly success: boolean
 	readonly faults: readonly AuditFault[]
+	readonly repairs: readonly AuditFault[]
+	readonly defaulted: readonly FieldPath[]
 }
 
 /**

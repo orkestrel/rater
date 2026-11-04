@@ -85,8 +85,7 @@ export function buildRatingDefinition(
  *
  * @param check - The authored check
  * @param actual - The resolved subject value
- * @param met - If `true`, the check was met; if `false`, it was not; absent when the check
- * was not yet evaluated
+ * @param state - The check's state; absent when the check was not evaluated
  * @param labels - Optional field-to-label overrides, keyed by dot-joined field
  * @returns A fresh evidence row
  *
@@ -96,7 +95,7 @@ export function buildRatingDefinition(
  * import { buildEvidence } from '@orkestrel/rater'
  *
  * const entry = createCheck('age', 'above', 18)
- * buildEvidence(entry, 25, true) // { field: 'age', comparison: 'above', expected: 18, actual: 25, met: true }
+ * buildEvidence(entry, 25, 'met') // { field: 'age', comparison: 'above', expected: 18, actual: 25, state: 'met' }
  * ```
  */
 export function buildEvidence(
@@ -106,9 +105,11 @@ export function buildEvidence(
 	labels?: Readonly<Record<string, string>>,
 ): Evidence {
 	const field = formatField(check.field)
+	// Only a label the caller gave, so a field named `constructor` never reads the prototype's.
+	const label = labels !== undefined && Object.hasOwn(labels, field) ? labels[field] : undefined
 	return {
 		field: check.field,
-		...(labels?.[field] === undefined ? {} : { label: labels[field] }),
+		...(label === undefined ? {} : { label }),
 		comparison: check.operator,
 		expected: check.value,
 		actual,
@@ -131,7 +132,7 @@ export function buildEvidence(
  * import { buildEvidenceRows } from '@orkestrel/rater'
  *
  * const checks = [createCheck('age', 'above', 18)]
- * buildEvidenceRows(checks, [{ field: 'age', met: true, actual: 25 }])
+ * buildEvidenceRows(checks, [{ field: 'age', state: 'met', actual: 25 }])
  * ```
  */
 export function buildEvidenceRows(
@@ -346,6 +347,8 @@ export function buildWorksheet(
 		errors: result.errors,
 		success: result.success,
 		faults: result.faults,
+		repairs: result.repairs,
+		defaulted: result.defaulted,
 	}
 }
 
@@ -385,7 +388,7 @@ export function buildLineResult(
  * Sums defined line amounts.
  *
  * @param lines - The rated lines
- * @returns The sum of every line's `amount`, or `undefined` when no line has one
+ * @returns The sum, or `undefined` when no line has an amount or any line refused
  *
  * @example
  * ```ts

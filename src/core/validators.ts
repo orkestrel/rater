@@ -124,7 +124,7 @@ export function isRatingDefinition(value: unknown): value is RatingDefinition {
  *
  * @remarks
  * Optional `field` is checked as a `FieldPath`, `label` as a string,
- * `comparison` as a `Comparison`, and `met` as a boolean, each when defined.
+ * `comparison` as a `Comparison`, and `state` as a `CheckState`, each when defined.
  * Unknown members, prototypes, and class instances are admitted. Arrays are
  * refused. `expected` and `actual` are `unknown`, so this guard does not read or
  * check them and a borrowed result is never narrowed on them; either member may
@@ -272,7 +272,7 @@ export function isStep(value: unknown): value is Step {
  * ```ts
  * import { isWorksheet } from '@orkestrel/rater'
  *
- * isWorksheet({ id: 'quote', name: 'Quote', aggregation: 'sum', value: 0, groups: [], steps: [], trace: [], errors: [], success: true }) // true
+ * isWorksheet({ id: 'quote', name: 'Quote', aggregation: 'sum', value: 0, groups: [], steps: [], trace: [], errors: [], success: true, faults: [], repairs: [], defaulted: [] }) // true
  * ```
  */
 export function isWorksheet(value: unknown): value is Worksheet {
@@ -289,6 +289,8 @@ export function isWorksheet(value: unknown): value is Worksheet {
 			errors: arrayOf(isString),
 			success: isBoolean,
 			faults: arrayOf(isAuditFault),
+			repairs: arrayOf(isAuditFault),
+			defaulted: arrayOf(isFieldPath),
 		},
 		['precision'],
 	)(value)
@@ -348,7 +350,7 @@ export function isLineResult(value: unknown): value is LineResult {
  * ```ts
  * import { isRatingResult } from '@orkestrel/rater'
  *
- * isRatingResult({ lines: [], success: true }) // true
+ * isRatingResult({ lines: [], success: true, errors: [], faults: [], repairs: [], defaulted: [] }) // true
  * ```
  */
 export function isRatingResult(value: unknown): value is RatingResult {

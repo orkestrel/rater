@@ -29,6 +29,7 @@ export const lineDefinitionShape: ContractShape = objectShape({
 	name: stringShape(),
 	description: optionalShape(stringShape()),
 	rate: quantitativeDefinitionShape,
+	metadata: optionalShape(jsonShape()),
 })
 
 /**
@@ -98,6 +99,8 @@ export const worksheetShape: ContractShape = objectShape({
 	errors: arrayShape(stringShape()),
 	success: booleanShape(),
 	faults: arrayShape(faultShape),
+	repairs: arrayShape(faultShape),
+	defaulted: arrayShape(fieldPathShape),
 })
 
 /** Describes a `LineResult` in its JSON projection. */

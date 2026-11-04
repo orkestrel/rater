@@ -18,14 +18,14 @@ import type {
 	TotalHandler,
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
-import { arrayOf, isArray, isRecord } from '@orkestrel/contract'
+import { arrayOf, isArray, isFiniteNumber, isRecord, isString } from '@orkestrel/contract'
 import {
-	buildErrorResult,
 	createQuantitativeReasoner,
 	createReason,
 	createSubjectDoor,
 	describeFault,
 	filterUniqueFaults,
+	formatField,
 	isQuantitativeResult,
 	isReasonError,
 	scanShape,
@@ -53,7 +53,7 @@ import { isLineDefinition, isRatingDefinition } from './validators.js'
  * import { Rater } from '@orkestrel/rater'
  *
  * const rater = new Rater()
- * rater.rate([], { id: 'subject-1' }) // { lines: [], success: true }
+ * rater.rate([], { id: 'subject-1' }).success // true
  * rater.destroy()
  * ```
  */
@@ -109,27 +109,40 @@ export class Rater implements RaterInterface {
 			return refused
 		}
 		const results = lines.map((line) => this.#rateLine(line, admitted))
-		const success = results.every((entry) => entry.worksheet.success)
+		const rated = results.every((entry) => entry.worksheet.success)
 		// No handler totals a line that refused, because the total would read as an answer.
-		const total = success ? (this.#total ?? sumAmounts)(results) : undefined
+		const summed = rated ? (this.#total ?? sumAmounts)(results) : undefined
+		// A total past what a number holds is no answer either, and the sum alone can overflow.
+		const overflowed = summed !== undefined && !isFiniteNumber(summed)
+		const total = overflowed ? undefined : summed
+		const success = rated && !overflowed
 		const faults = filterUniqueFaults(results.flatMap((entry) => entry.worksheet.faults))
 		const said = new Set(faults.map((fault) => describeFault(fault)))
 		// `success` is the verdict, so a line that failed and said nothing still has to say so.
 		const other = results.flatMap((entry) => {
-			const { errors, success: rated } = entry.worksheet
-			if (!rated && errors.length === 0) return [`${entry.id}: The line failed and said nothing`]
+			const { errors, success: settled } = entry.worksheet
+			if (!settled && errors.length === 0) return [`${entry.id}: The line failed and said nothing`]
 			return errors.filter((error) => !said.has(error)).map((error) => `${entry.id}: ${error}`)
 		})
+		const repairs = filterUniqueFaults([
+			...admission.repairs,
+			...results.flatMap((entry) => entry.worksheet.repairs),
+		])
+		const filled = [
+			...admission.defaulted,
+			...results.flatMap((entry) => entry.worksheet.defaulted),
+		]
+		const defaulted = [...new Map(filled.map((field) => [formatField(field), field])).values()]
 		const result: RatingResult = {
 			lines: results,
 			...(total === undefined ? {} : { total }),
 			success,
-			errors: [...other, ...said],
+			errors: [...other, ...said, ...(overflowed ? ['The total is not a finite number'] : [])],
 			faults,
-			repairs: admission.repairs,
-			defaulted: admission.defaulted,
+			repairs,
+			defaulted,
 		}
-		this.#emitter.emit('rate', subject, result)
+		this.#emitter.emit('rate', admitted, result)
 		return result
 	}
 
@@ -177,21 +190,15 @@ export class Rater implements RaterInterface {
 		return buildLineResult(line, result, this.#labels)
 	}
 
-	// Narrows the engine's tagged ReasonResult union down to a QuantitativeResult
-	// for a definition the engine is guaranteed (by dispatch-by-reasoning, given
-	// only the quantitative reasoner is ever registered) to resolve as such — a
-	// defensive, total fallback rather than an assertion. A nonconforming
-	// injected engine result missing (or with a non-array) `errors` contributes
-	// no errors from that side rather than throwing.
+	// Narrows the engine's answer to a QuantitativeResult, and reads nothing it has not checked:
+	// an injected engine can answer anything, null included, so this is total. An engine that
+	// contradicts itself refuses, because `success` is the verdict and it has to be earned.
 	#reasonQuantitative(subject: Subject, definition: QuantitativeDefinition): QuantitativeResult {
-		const result = this.#reason(subject, definition)
-		if (isQuantitativeResult(result)) return result
-		const failure = buildErrorResult(
-			definition,
-			`Expected quantitative result, got ${result.reasoning}`,
-		)
-		const errors = [...(isArray<string>(result.errors) ? result.errors : []), ...failure.errors]
-		if (failure.reasoning === 'quantitative') return { ...failure, errors }
+		const result: unknown = this.#reason(subject, definition)
+		if (isQuantitativeResult(result)) return this.#settle(result)
+		const answer = isRecord(result) ? result : {}
+		const named = isString(answer.reasoning) ? answer.reasoning : 'something else'
+		const said = isArray<unknown>(answer.errors) ? answer.errors.filter(isString) : []
 		return {
 			reasoning: 'quantitative',
 			value: 0,
@@ -199,11 +206,19 @@ export class Rater implements RaterInterface {
 			count: 0,
 			success: false,
 			trace: [],
-			errors,
+			errors: [...said, `Expected quantitative result, got ${named}`],
 			faults: [],
 			repairs: [],
 			defaulted: [],
 		}
+	}
+
+	#settle(result: QuantitativeResult): QuantitativeResult {
+		if (!result.success) return result
+		const clean = result.errors.length === 0 && result.faults.length === 0
+		if (clean && isFiniteNumber(result.value)) return result
+		const said = result.errors.length > 0 ? [] : ['The line succeeded beside a fault or no value']
+		return { ...result, success: false, errors: [...result.errors, ...said] }
 	}
 
 	// An invalid line definition is an authoring error, so it reaches the caller as one.

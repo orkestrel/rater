@@ -220,6 +220,8 @@ export function createWorksheet(overrides?: Partial<Worksheet>): Worksheet {
 		errors: [],
 		success: true,
 		faults: [],
+		repairs: [],
+		defaulted: [],
 		...overrides,
 	}
 }
@@ -235,5 +237,29 @@ export function createLineResult(id: string, amount?: number): LineResult {
 		name: id,
 		...(amount === undefined ? {} : { amount }),
 		worksheet: createWorksheet({ success: amount !== undefined }),
+	}
+}
+
+/**
+ * Removes every `shape` from a generated rating definition.
+ *
+ * @remarks
+ * A contract reads a nested `shape` as any JSON value and the guard reads it as a shape, so the
+ * lockstep between them holds with those set aside.
+ *
+ * @param value - The generated value
+ * @returns The value with no `shape` key on it or on any line's `rate`
+ */
+export function dropRatingShapes(value: unknown): unknown {
+	if (!isRecord(value)) return value
+	const { shape: _shape, ...rest } = value
+	if (!isArray<unknown>(rest.lines)) return rest
+	return {
+		...rest,
+		lines: rest.lines.map((line) => {
+			if (!isRecord(line) || !isRecord(line.rate)) return line
+			const { shape: _rateShape, ...rate } = line.rate
+			return { ...line, rate }
+		}),
 	}
 }

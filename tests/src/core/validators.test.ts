@@ -455,6 +455,8 @@ describe('validators — isWorksheet', () => {
 		trace: [],
 		errors: [],
 		faults: [],
+		repairs: [],
+		defaulted: [],
 		success: true,
 	}
 
@@ -509,6 +511,14 @@ describe('validators — isWorksheet', () => {
 				return []
 			}
 
+			get repairs(): readonly unknown[] {
+				return []
+			}
+
+			get defaulted(): readonly unknown[] {
+				return []
+			}
+
 			get success(): boolean {
 				return true
 			}
@@ -556,6 +566,8 @@ describe('validators — isLineResult', () => {
 		trace: [],
 		errors: [],
 		faults: [],
+		repairs: [],
+		defaulted: [],
 		success: true,
 	}
 	const line = { id: 'quote', name: 'Quote', worksheet }
@@ -650,6 +662,8 @@ describe('validators — isRatingResult closure', () => {
 								trace: [],
 								errors: [],
 								faults: [],
+								repairs: [],
+								defaulted: [],
 								success: true,
 							}
 						}
