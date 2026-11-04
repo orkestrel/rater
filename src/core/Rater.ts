@@ -25,7 +25,7 @@ import {
 	createSubjectDoor,
 	describeFault,
 	filterUniqueFaults,
-	formatField,
+	filterUniqueFields,
 	isQuantitativeResult,
 	isReasonError,
 	scanShape,
@@ -128,11 +128,10 @@ export class Rater implements RaterInterface {
 			...admission.repairs,
 			...results.flatMap((entry) => entry.worksheet.repairs),
 		])
-		const filled = [
+		const defaulted = filterUniqueFields([
 			...admission.defaulted,
 			...results.flatMap((entry) => entry.worksheet.defaulted),
-		]
-		const defaulted = [...new Map(filled.map((field) => [formatField(field), field])).values()]
+		])
 		const result: RatingResult = {
 			lines: results,
 			...(total === undefined ? {} : { total }),

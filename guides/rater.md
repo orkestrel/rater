@@ -63,7 +63,7 @@ is `true` only when every line's `worksheet.success` is `true`. A `RatingResult`
 
 A `RatingDefinition` may carry a `shape`, which admits the subject through `reason`'s door before any line reads it. A refusal rates no line and names each fault, and `repairs` and `defaulted` report what the door changed. The shape is checked once per definition against what its lines read, and a shape that cannot stand or misses a field throws `RaterError` `'DEFINITION'`. A plain line list has no door.
 
-A definition crosses a boundary on `ratingDefinitionContract.is`, never `parse`. A result crosses as `projectRatingResult`, which `ratingResultContract` admits, because an evidence row's `actual` holds whatever the subject held and a worksheet's numbers may be `NaN`.
+A definition crosses a boundary on `ratingDefinitionContract.is`, never `parse`. `is` reads a nested `shape` as any JSON value and the guard reads it as a shape, so `shape: 42` passes `is` and `isRatingDefinition` refuses it: a definition crossing a boundary goes through the guard as well. A result crosses as `projectRatingResult`, which `ratingResultContract` admits, because an evidence row's `actual` holds whatever the subject held and a worksheet's numbers may be `NaN`.
 
 ### Types
 

@@ -1014,6 +1014,14 @@ describe('Rater — published contracts', () => {
 		expect(ratingDefinitionContract.is({ ...definition, extra: 1 })).toBe(false)
 	})
 
+	it('names the gap: is admits a malformed nested shape, and the guard refuses it', () => {
+		const definition = buildRatingDefinition('r', 'R', [line])
+		for (const shape of [42, null, {}, { type: 'nonsense' }]) {
+			expect(ratingDefinitionContract.is({ ...definition, shape })).toBe(true)
+			expect(isRatingDefinition({ ...definition, shape })).toBe(false)
+		}
+	})
+
 	it('a result crosses as its projection, whatever the subject held', () => {
 		const rater = createRater()
 		for (const a of [undefined, 5, Number.NaN, 'x', 1n, { b: Number.NaN }]) {

@@ -12,6 +12,7 @@ import type {
 	WorksheetStage,
 } from './types.js'
 import {
+	isAuditFault,
 	arrayOf,
 	isBoolean,
 	isJSONValue,
@@ -23,7 +24,6 @@ import {
 } from '@orkestrel/contract'
 import {
 	isAggregation,
-	isAuditFault,
 	isCheckState,
 	isComparison,
 	isContractShape,
