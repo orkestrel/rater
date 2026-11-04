@@ -18,12 +18,18 @@ import type {
 	TotalHandler,
 } from './types.js'
 import { Emitter } from '@orkestrel/emitter'
-import { arrayOf, isArray, isFiniteNumber, isRecord, isString } from '@orkestrel/contract'
+import {
+	arrayOf,
+	describeFaults,
+	isArray,
+	isFiniteNumber,
+	isRecord,
+	isString,
+} from '@orkestrel/contract'
 import {
 	createQuantitativeReasoner,
 	createReason,
 	createSubjectDoor,
-	describeFault,
 	filterUniqueFaults,
 	filterUniqueFields,
 	isQuantitativeResult,
@@ -117,7 +123,7 @@ export class Rater implements RaterInterface {
 		const total = overflowed ? undefined : summed
 		const success = rated && !overflowed
 		const faults = filterUniqueFaults(results.flatMap((entry) => entry.worksheet.faults))
-		const said = new Set(faults.map((fault) => describeFault(fault)))
+		const said = new Set(faults.map((fault) => describeFaults([fault])))
 		// `success` is the verdict, so a line that failed and said nothing still has to say so.
 		const other = results.flatMap((entry) => {
 			const { errors, success: settled } = entry.worksheet

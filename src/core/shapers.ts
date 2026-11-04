@@ -1,6 +1,7 @@
 import type { ContractShape } from '@orkestrel/contract'
 import {
 	arrayShape,
+	auditFaultShape,
 	booleanShape,
 	jsonShape,
 	literalShape,
@@ -8,13 +9,13 @@ import {
 	numberShape,
 	objectShape,
 	optionalShape,
+	shapeShape,
 	stringShape,
 } from '@orkestrel/contract'
 import {
 	AGGREGATIONS,
 	CHECK_STATES,
 	COMPARISONS,
-	faultShape,
 	fieldPathShape,
 	quantitativeDefinitionShape,
 } from '@orkestrel/reason'
@@ -34,9 +35,6 @@ export const lineDefinitionShape: ContractShape = objectShape({
 
 /**
  * Describes a `RatingDefinition`.
- *
- * @remarks
- * `shape` is any JSON value here. A `ContractShape` is recursive, so the guard reads it.
  */
 export const ratingDefinitionShape: ContractShape = objectShape({
 	id: stringShape(),
@@ -44,7 +42,7 @@ export const ratingDefinitionShape: ContractShape = objectShape({
 	description: optionalShape(stringShape()),
 	lines: arrayShape(lineDefinitionShape),
 	metadata: optionalShape(jsonShape()),
-	shape: optionalShape(jsonShape()),
+	shape: optionalShape(shapeShape()),
 })
 
 /** Describes an `Evidence` row in its JSON projection. */
@@ -98,8 +96,8 @@ export const worksheetShape: ContractShape = objectShape({
 	trace: arrayShape(stringShape()),
 	errors: arrayShape(stringShape()),
 	success: booleanShape(),
-	faults: arrayShape(faultShape),
-	repairs: arrayShape(faultShape),
+	faults: arrayShape(auditFaultShape()),
+	repairs: arrayShape(auditFaultShape()),
 	defaulted: arrayShape(fieldPathShape),
 })
 
@@ -117,7 +115,7 @@ export const ratingResultShape: ContractShape = objectShape({
 	total: optionalShape(nullableShape(numberShape())),
 	success: booleanShape(),
 	errors: arrayShape(stringShape()),
-	faults: arrayShape(faultShape),
-	repairs: arrayShape(faultShape),
+	faults: arrayShape(auditFaultShape()),
+	repairs: arrayShape(auditFaultShape()),
 	defaulted: arrayShape(fieldPathShape),
 })

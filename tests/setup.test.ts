@@ -9,6 +9,7 @@
 import type { LineResult } from '@src/core'
 import { describe, expect, it } from 'vitest'
 import {
+	buildRaterContractCases,
 	createCheckFailureLine,
 	createEngine,
 	createLine,
@@ -24,6 +25,22 @@ import {
 	EXTREME_NUMBERS,
 	StubEngine,
 } from './setup.js'
+
+describe('setup — standing contract table', () => {
+	it('includes every definition and result object shape', () => {
+		const table = buildRaterContractCases()
+		expect(table.definitions.map((row) => row.name)).toEqual(['line', 'rating'])
+		expect(table.results.map((row) => row.name)).toEqual([
+			'rating',
+			'line',
+			'worksheet',
+			'factor',
+			'group',
+			'step',
+			'evidence',
+		])
+	})
+})
 
 describe('setup — general primitives', () => {
 	it('records every handler call in order and answers with the sentinel', () => {

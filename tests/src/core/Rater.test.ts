@@ -38,7 +38,6 @@ import {
 	createSubject,
 	createTotalRecorder,
 	deepFreeze,
-	dropRatingShapes,
 } from '../../setup.js'
 
 describe('Rater — line selection', () => {
@@ -742,7 +741,7 @@ describe('Rater — refusing what it cannot read', () => {
 		expect(result.lines[1]?.amount).toBe(5)
 		expect(result.total).toBeUndefined()
 		expect(result.faults).toEqual([{ reason: 'missing', path: 'points', expected: 'number' }])
-		expect(result.errors).toEqual(['Field "points" is missing'])
+		expect(result.errors).toEqual(['points: missing; expected number'])
 		rater.destroy()
 	})
 
@@ -969,9 +968,9 @@ describe('Rater — published contracts', () => {
 		]),
 	)
 
-	it('what is admits, the guard admits, setting a nested shape aside', () => {
+	it('what is admits, the guard admits including nested shapes', () => {
 		for (const seed of Array.from({ length: 40 }, (_, index) => index + 1)) {
-			const generated = dropRatingShapes(ratingDefinitionContract.generate(seededRandom(seed)))
+			const generated = ratingDefinitionContract.generate(seededRandom(seed))
 			expect(ratingDefinitionContract.is(generated)).toBe(true)
 			expect(isRatingDefinition(generated)).toBe(true)
 		}
@@ -1014,10 +1013,10 @@ describe('Rater — published contracts', () => {
 		expect(ratingDefinitionContract.is({ ...definition, extra: 1 })).toBe(false)
 	})
 
-	it('names the gap: is admits a malformed nested shape, and the guard refuses it', () => {
+	it('refuses a malformed nested shape at both boundaries', () => {
 		const definition = buildRatingDefinition('r', 'R', [line])
 		for (const shape of [42, null, {}, { type: 'nonsense' }]) {
-			expect(ratingDefinitionContract.is({ ...definition, shape })).toBe(true)
+			expect(ratingDefinitionContract.is({ ...definition, shape })).toBe(false)
 			expect(isRatingDefinition({ ...definition, shape })).toBe(false)
 		}
 	})
@@ -1086,7 +1085,7 @@ describe('Rater — an injected engine it cannot trust', () => {
 		[
 			'beside a fault',
 			{ faults: [{ reason: 'missing', path: 'a', expected: 'number' }] },
-			'Field "a" is missing',
+			'a: missing; expected number',
 		],
 		[
 			'on a value that is no number',

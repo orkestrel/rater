@@ -15,7 +15,7 @@ import type {
 } from '@orkestrel/reason'
 import type { LineDefinition, LineResult, TotalHandler, Worksheet } from '@src/core'
 import { createEmitter } from '@orkestrel/emitter'
-import { isArray, isRecord } from '@orkestrel/contract'
+import { createContract, isArray, isRecord } from '@orkestrel/contract'
 import {
 	createCheck,
 	createFactorGroup,
@@ -26,8 +26,31 @@ import {
 	createQuantitativeReasoner,
 	createReason,
 	createStaticFactor,
+	projectValue,
 } from '@orkestrel/reason'
-import { buildLineDefinition } from '@src/core'
+import {
+	buildLineDefinition,
+	buildRatingDefinition,
+	createRater,
+	lineDefinitionShape,
+	ratingDefinitionContract,
+	ratingResultContract,
+	evidenceShape,
+	worksheetFactorShape,
+	worksheetGroupShape,
+	worksheetStepShape,
+	worksheetShape,
+	lineResultShape,
+	isLineDefinition,
+	isRatingDefinition,
+	isRatingResult,
+	isEvidence,
+	isWorksheetFactor,
+	isWorksheetGroup,
+	isStep,
+	isWorksheet,
+	isLineResult,
+} from '@src/core'
 import { createRecorder } from '@orkestrel/test'
 
 // ---------------------------------------------------------------------------
@@ -240,26 +263,89 @@ export function createLineResult(id: string, amount?: number): LineResult {
 	}
 }
 
-/**
- * Removes every `shape` from a generated rating definition.
- *
- * @remarks
- * A contract reads a nested `shape` as any JSON value and the guard reads it as a shape, so the
- * lockstep between them holds with those set aside.
- *
- * @param value - The generated value
- * @returns The value with no `shape` key on it or on any line's `rate`
- */
-export function dropRatingShapes(value: unknown): unknown {
-	if (!isRecord(value)) return value
-	const { shape: _shape, ...rest } = value
-	if (!isArray<unknown>(rest.lines)) return rest
+/** Builds the standing shape/guard table from real rating outcomes. */
+export function buildRaterContractCases() {
+	const line = buildLineDefinition(
+		'score',
+		'Score',
+		createQuantitativeDefinition('score', 'Score', [
+			createFactorGroup('sum', 'sum', [
+				createStaticFactor('value', 5, { checks: [createCheck('x', 'equals', 1)] }),
+			]),
+		]),
+	)
+	const rater = createRater()
+	const positive = rater.rate([line], { x: 1 })
+	rater.destroy()
 	return {
-		...rest,
-		lines: rest.lines.map((line) => {
-			if (!isRecord(line) || !isRecord(line.rate)) return line
-			const { shape: _rateShape, ...rate } = line.rate
-			return { ...line, rate }
-		}),
+		definitions: [
+			{
+				name: 'line',
+				wire: createContract(lineDefinitionShape),
+				guard: isLineDefinition,
+				positive: line,
+			},
+			{
+				name: 'rating',
+				wire: ratingDefinitionContract,
+				guard: isRatingDefinition,
+				positive: buildRatingDefinition('rating', 'Rating', [line]),
+			},
+		].map((row) => ({ ...row, direction: 'is implies guard', project: undefined, negative: {} })),
+		results: [
+			{
+				name: 'rating',
+				wire: ratingResultContract,
+				guard: isRatingResult,
+				positive,
+				project: projectValue,
+			},
+			{
+				name: 'line',
+				wire: createContract(lineResultShape),
+				guard: isLineResult,
+				positive: positive.lines[0],
+				project: projectValue,
+			},
+			{
+				name: 'worksheet',
+				wire: createContract(worksheetShape),
+				guard: isWorksheet,
+				positive: positive.lines[0]?.worksheet,
+				project: projectValue,
+			},
+			{
+				name: 'factor',
+				wire: createContract(worksheetFactorShape),
+				guard: isWorksheetFactor,
+				positive: positive.lines[0]?.worksheet.groups[0]?.factors[0],
+				project: projectValue,
+			},
+			{
+				name: 'group',
+				wire: createContract(worksheetGroupShape),
+				guard: isWorksheetGroup,
+				positive: positive.lines[0]?.worksheet.groups[0],
+				project: projectValue,
+			},
+			{
+				name: 'step',
+				wire: createContract(worksheetStepShape),
+				guard: isStep,
+				positive: positive.lines[0]?.worksheet.steps[0],
+				project: projectValue,
+			},
+			{
+				name: 'evidence',
+				wire: createContract(evidenceShape),
+				guard: isEvidence,
+				positive: positive.lines[0]?.worksheet.groups[0]?.factors[0]?.evidence[0],
+				project: projectValue,
+			},
+		].map((row) => ({
+			...row,
+			direction: 'producer implies wire after projection',
+			negative: { success: 'invalid', id: 42, state: 'invalid' },
+		})),
 	}
 }
