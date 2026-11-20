@@ -1,6 +1,6 @@
 {
 	"name": "@orkestrel/rater",
-	"version": "0.0.24",
+	"version": "0.0.25",
 	"description": "A typed quantitative rating layer: authored lines are rated against a subject to produce per-line amounts, worksheets, and a derived total. Part of the @orkestrel line.",
 	"keywords": [
 		"quantitative",
@@ -72,7 +72,7 @@
 	"dependencies": {
 		"@orkestrel/contract": "^0.0.27",
 		"@orkestrel/emitter": "^0.0.19",
-		"@orkestrel/reason": "^0.0.20"
+		"@orkestrel/reason": "^0.0.21"
 	},
 	"devDependencies": {
 		"@microsoft/api-extractor": "^7.60.1",
